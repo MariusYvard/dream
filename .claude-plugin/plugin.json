@@ -1,0 +1,22 @@
+{
+  "name": "dream",
+  "version": "0.3.0",
+  "description": "Cycle de reve cognitif pour Claude. Palais Graphique Temporel 2.0, sanitisation locale, debat multi-agents, jardin contrefactuel, ledger Ed25519 et metriques Prometheus. Architecture hybride <16 Go RAM.",
+  "author": {
+    "name": "Marius Yvard",
+    "email": "mariusyvard72@gmail.com"
+  },
+  "homepage": "https://github.com/MariusYvard/dream",
+  "repository": "https://github.com/MariusYvard/dream",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "consolidation",
+    "knowledge-graph",
+    "vector-search",
+    "mcp",
+    "local-llm",
+    "sleep-cycle",
+    "self-improving-agent"
+  ]
+}

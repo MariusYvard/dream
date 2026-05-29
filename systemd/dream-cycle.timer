@@ -1,0 +1,13 @@
+[Unit]
+Description=Dream nightly cycle — fires at 02:05 local time
+Requires=dream-cycle.service
+
+[Timer]
+# 02:05 in local time every day.
+OnCalendar=*-*-* 02:05:00
+# If the machine was off at 02:05, catch up within the next 15 minutes.
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

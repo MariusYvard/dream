@@ -1,0 +1,57 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+pytest-cache-files-*/
+
+# ── Dream runtime data (NEVER commit these) ───────────────────────────────────
+# Private Ed25519 key — leaking this breaks ledger integrity for that machine
+keys/
+*.private
+
+# Live database — user-specific, large, binary
+pgt.sqlite
+pgt.sqlite-wal
+pgt.sqlite-shm
+
+# LanceDB vector store — binary, machine-generated, large
+vectors.lance/
+
+# Day buffers — contain unsanitised session transcripts
+buffer/
+
+# Cold archive — can reach GB range
+archive/
+
+# Rejected/HITL debate trails
+rejected/
+
+# Nightly topic outputs — rebuilt each cycle
+topics/
+
+# Circuit breaker state — machine-specific
+circuit.json
+
+# Dream index rebuilt each cycle
+CLAUDE.md
+
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+.env.*
+*.env
+
+# ── Editors ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*~
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

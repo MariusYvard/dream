@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dream.nightly</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- launchd does not inherit the user shell PATH.
+             Replace /usr/local/bin/python3 with the absolute path to the
+             Python that has the dream deps installed.
+             Find it with: which python3  OR  py -3.12 -c "import sys; print(sys.executable)"
+        -->
+        <string>/usr/local/bin/python3</string>
+        <string>DREAM_HOME_PLACEHOLDER/scripts/scheduler.py</string>
+        <string>--once</string>
+    </array>
+
+    <!-- Fire at 02:05 every day -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>5</integer>
+    </dict>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DREAM_HOME</key>
+        <string>DREAM_HOME_PLACEHOLDER</string>
+        <key>PYTHONPATH</key>
+        <string>DREAM_HOME_PLACEHOLDER/scripts</string>
+    </dict>
+
+    <!-- Logs — visible via: tail -f ~/Library/Logs/dream-nightly.log -->
+    <key>StandardOutPath</key>
+    <string>DREAM_HOME_PLACEHOLDER/logs/nightly.log</string>
+    <key>StandardErrorPath</key>
+    <string>DREAM_HOME_PLACEHOLDER/logs/nightly-err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

@@ -1,0 +1,23 @@
+[Unit]
+Description=Dream nightly cognitive consolidation cycle
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=oneshot
+# Resolve the Python interpreter that has the dream deps installed.
+# Override with: systemctl --user edit dream-cycle.service
+ExecStart=/usr/bin/env python3 %h/.dream/scripts/scheduler.py --once
+
+Environment=DREAM_HOME=%h/.dream
+Environment=PYTHONPATH=%h/.dream/scripts
+
+# Capture stdout/stderr to the journal (journalctl --user -u dream-cycle)
+StandardOutput=journal
+StandardError=journal
+
+# Fail the unit if the cycle exits non-zero — scheduler returns 1 on fatal errors.
+SuccessExitStatus=0
+
+[Install]
+WantedBy=default.target

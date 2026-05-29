@@ -1,0 +1,30 @@
+{
+  "_comment": [
+    "This file is a template. ${CLAUDE_PLUGIN_ROOT} is resolved by the Cowork plugin",
+    "runtime when Dream is installed via the plugin manager.",
+    "",
+    "If you are registering Dream MANUALLY (without the plugin manager), run the",
+    "platform-specific setup script instead — it writes the resolved absolute paths:",
+    "",
+    "  Windows : python scripts/setup_windows.py",
+    "  Linux   : python scripts/setup_linux.py",
+    "  macOS   : python scripts/setup_macos.py",
+    "",
+    "Do NOT copy-paste this file verbatim into claude_desktop_config.json;",
+    "${CLAUDE_PLUGIN_ROOT} is not a standard shell variable and will not be expanded."
+  ],
+  "mcpServers": {
+    "dream": {
+      "command": "python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/mcp_server.py"],
+      "env": {
+        "DREAM_HOME": "${DREAM_HOME:-${HOME}/.dream}",
+        "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/scripts",
+        "DREAM_REDIS_HOST": "127.0.0.1",
+        "DREAM_REDIS_PORT": "6379",
+        "DREAM_CONSOLIDATION_MODEL": "gemma4:26b",
+        "DREAM_COUNTERFACTUAL_MODEL": "gemma4:26b"
+      }
+    }
+  }
+}

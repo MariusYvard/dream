@@ -1,0 +1,32 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: dream
+    static_configs:
+      - targets: ["127.0.0.1:9464"]
+        labels:
+          service: dream
+          host: local
+
+rule_files:
+  - alerts.yml
+
+# Suggested alerting rules. Drop into alerts.yml.
+# - alert: DreamLatencyHigh
+#   expr: histogram_quantile(0.95, rate(dream_search_latency_ms_bucket[5m])) > 500
+#   for: 10m
+#   labels: {severity: warning}
+# - alert: DreamLedgerCorrupt
+#   expr: dream_ledger_merkle_ok == 0
+#   for: 1m
+#   labels: {severity: critical}
+# - alert: DreamConsensusLow
+#   expr: avg_over_time(dream_consensus_score_sum[1d] / dream_consensus_score_count[1d]) < 0.65
+#   for: 1d
+#   labels: {severity: warning}
+# - alert: DreamRAMSaturation
+#   expr: dream_ram_peak_mb > 14500
+#   for: 5m
+#   labels: {severity: critical}
