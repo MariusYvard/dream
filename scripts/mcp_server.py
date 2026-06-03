@@ -27,11 +27,23 @@ import os
 import pickle
 import sqlite3
 import sys
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except ModuleNotFoundError as exc:  # fail loud: the host only shows "could not attach"
+    sys.stderr.write(
+        "[dream] FATAL: missing Python dependency '%s'.\n"
+        "[dream] The interpreter launching this server lacks the dream deps.\n"
+        "[dream] Interpreter : %s\n"
+        "[dream] Fix         : \"%s\" -m pip install -r requirements.txt\n"
+        "[dream] Diagnose     : \"%s\" %s --doctor\n"
+        % (exc.name, sys.executable, sys.executable, sys.executable, __file__)
+    )
+    raise
 
 # NOTE: heavy modules (mcp_search_activation → sentence-transformers, lancedb,
 # numpy, networkx, vitality_engine, load_context, counterfactual_garden) are
@@ -53,10 +65,24 @@ mcp = FastMCP("dream")
 # In-process graph cache — kept in sync with disk after each store_event.
 _GRAPH = None  # networkx.MultiDiGraph, lazily built on first use
 
+# Set once the SQLite schema is guaranteed present. Startup side-effects run in
+# a background thread (see _bootstrap) so the MCP `initialize` handshake is never
+# blocked; tools that touch the database wait on this event first.
+_SCHEMA_READY = threading.Event()
+
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    # A cold start may still be applying the schema in the background. Block
+    # briefly so a tool never queries a table that does not exist yet.
+    if not _SCHEMA_READY.is_set():
+        _SCHEMA_READY.wait(timeout=30)
+    # busy_timeout + WAL let a second dream instance (e.g. the plugin runtime
+    # and the desktop app sharing one DREAM_HOME) wait for the write lock
+    # instead of failing, which previously stalled cold starts.
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -453,13 +479,35 @@ def _ensure_schema() -> None:
         print(f"[mcp_server] schema self-heal skipped: {exc}", file=sys.stderr)
 
 
+def _bootstrap() -> None:
+    """Run startup side-effects off the critical path.
+
+    `mcp.run()` must reach its stdio loop and answer the `initialize` request
+    well within the host timeout (60 s). Schema bootstrap and the metrics
+    endpoint are therefore done here, in a daemon thread, never blocking the
+    handshake even on a slow or heavily loaded machine.
+    """
+    try:
+        _ensure_schema()
+    finally:
+        _SCHEMA_READY.set()  # release _conn() waiters even if schema self-heal failed
+    try:
+        prometheus_metrics.serve()
+    except Exception as exc:  # port already bound by a sibling instance, etc.
+        print(f"[mcp_server] metrics endpoint skipped: {exc}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--doctor", action="store_true")
     args, _ = parser.parse_known_args()
     if args.smoke:
         _smoke()
         sys.exit(0)
-    _ensure_schema()
-    prometheus_metrics.serve()
+    if args.doctor:
+        import doctor
+
+        sys.exit(doctor.main())
+    threading.Thread(target=_bootstrap, name="dream-bootstrap", daemon=True).start()
     mcp.run()

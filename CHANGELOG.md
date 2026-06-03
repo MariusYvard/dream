@@ -5,6 +5,22 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] — 2026-06-03
+
+### Fixed
+- **MCP handshake timeout ("Could not attach to MCP server dream")** — on a cold start under load the server took 46 to 63 seconds to answer the `initialize` request, past the 60 second host timeout. Root cause: a deployed `mcp_server.py` imported the full ML stack (`sentence-transformers`, `lancedb`) at module load via `from mcp_search_activation import embedder, hybrid_search, spreading_activation`. Those imports are now lazy (inside the tools that use them), bringing cold import from 45 plus seconds down to about 8 seconds.
+
+### Added
+- **Background bootstrap** — schema creation and the Prometheus endpoint now run in a daemon thread (`_bootstrap`) so `mcp.run()` reaches its stdio loop immediately and the `initialize` handshake is never blocked by startup work. Tools that touch SQLite wait on `_SCHEMA_READY` (30 s) before their first query.
+- **SQLite concurrency guard** — `_conn()` sets `busy_timeout = 30000` and `journal_mode = WAL` so two dream instances sharing one `DREAM_HOME` (the desktop app and the plugin runtime) wait for the write lock instead of stalling the cold start.
+- **Dependency import guard** — a missing dependency now prints the interpreter path and the exact `pip install -r requirements.txt` command to stderr (visible in the host log) instead of a bare `ModuleNotFoundError`.
+- `scripts/doctor.py` (and `mcp_server.py --doctor`) — a stdlib-only self-diagnostic that checks the interpreter, dependencies, `DREAM_HOME`, the SQLite schema, the metrics port, the `claude_desktop_config.json` registration and the cold import time.
+
+### Changed
+- `setup_windows.py` registers the server from the actual scripts directory (`SCRIPTS_DIR`) instead of a non-existent `DREAM_HOME/scripts` path, widens Python detection to 3.11 through 3.13 with a fallback to the running interpreter, and points the dependency hint at `requirements.txt` (was the wrong `fastmcp` package).
+
+---
+
 ## [0.3.0] — 2026-05-29
 
 ### Added

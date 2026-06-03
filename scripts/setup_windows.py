@@ -28,39 +28,65 @@ import subprocess
 import sys
 from typing import Optional
 
+# The server scripts live next to this file (the plugin root), NOT inside
+# DREAM_HOME. DREAM_HOME holds data only. Registering the data directory as the
+# code directory was the original bug: the path did not exist and the host
+# could not launch the server.
+SCRIPTS_DIR = pathlib.Path(__file__).resolve().parent
+
 # ---------------------------------------------------------------------------
-# Python 3.12 detection
+# Python detection (3.11 - 3.13)
 # ---------------------------------------------------------------------------
 
-_CANDIDATE_PATHS = [
-    pathlib.Path(os.environ.get("LOCALAPPDATA", "C:\\")) / "Programs/Python/Python312/python.exe",
-    pathlib.Path("C:/Python312/python.exe"),
-    pathlib.Path(os.environ.get("PROGRAMFILES", "C:\\Program Files")) / "Python312/python.exe",
-    pathlib.Path(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)")) / "Python312/python.exe",
-]
+_SUPPORTED = ("3.13", "3.12", "3.11")
 
 
-def find_python312() -> Optional[str]:
-    """Return the path to a Python 3.12 executable, or None."""
-    # Prefer the py.exe launcher — works on any standard Windows install
-    for flag in ("-3.12", "-3.12-64", "-3.12-32"):
+def _candidate_paths() -> list[pathlib.Path]:
+    out: list[pathlib.Path] = []
+    for tag in ("313", "312", "311"):
+        out += [
+            pathlib.Path(os.environ.get("LOCALAPPDATA", "C:\\")) / f"Programs/Python/Python{tag}/python.exe",
+            pathlib.Path(f"C:/Python{tag}/python.exe"),
+            pathlib.Path(os.environ.get("PROGRAMFILES", "C:\\Program Files")) / f"Python{tag}/python.exe",
+            pathlib.Path(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)")) / f"Python{tag}/python.exe",
+        ]
+    return out
+
+
+def find_python() -> Optional[str]:
+    """Return a usable Python 3.11+ executable.
+
+    Preference order: an interpreter that already has the dream deps, then the
+    py.exe launcher, then well-known install paths, then the running
+    interpreter as a last resort (so setup never dead-ends).
+    """
+    # 1. py.exe launcher, newest supported first
+    for ver in _SUPPORTED:
         try:
             r = subprocess.run(
-                ["py", flag, "-c", "import sys; print(sys.executable)"],
+                ["py", f"-{ver}", "-c", "import sys; print(sys.executable)"],
                 capture_output=True, text=True, timeout=10,
             )
             if r.returncode == 0:
                 exe = r.stdout.strip()
-                if pathlib.Path(exe).exists():
+                if exe and pathlib.Path(exe).exists():
                     return exe
         except FileNotFoundError:
             break  # py launcher not installed
 
-    # Fallback: well-known install locations
-    for p in _CANDIDATE_PATHS:
+    # 2. well-known install locations
+    for p in _candidate_paths():
         if p.exists():
             return str(p)
+
+    # 3. last resort: the interpreter running this script
+    if sys.version_info[:2] >= (3, 11):
+        return sys.executable
     return None
+
+
+# Backwards-compatible alias.
+find_python312 = find_python
 
 
 def verify_dream_deps(python_exe: str) -> bool:
@@ -101,7 +127,7 @@ def _mcp_env(dream_home: pathlib.Path) -> dict:
     env = os.environ
     return {
         "DREAM_HOME": str(dream_home),
-        "PYTHONPATH": str(dream_home / "scripts"),
+        "PYTHONPATH": str(SCRIPTS_DIR),
         "DREAM_REDIS_HOST": env.get("DREAM_REDIS_HOST", "127.0.0.1"),
         "DREAM_REDIS_PORT": env.get("DREAM_REDIS_PORT", "6379"),
         "DREAM_CONSOLIDATION_MODEL": env.get("DREAM_CONSOLIDATION_MODEL", "gemma4:26b"),
@@ -132,7 +158,7 @@ def inject_mcp_config(
 
     mcp_entry = {
         "command": python_exe,
-        "args": [str(dream_home / "scripts" / "mcp_server.py")],
+        "args": [str(SCRIPTS_DIR / "mcp_server.py")],
         "env": _mcp_env(dream_home),
     }
     config.setdefault("mcpServers", {})["dream"] = mcp_entry
@@ -170,13 +196,13 @@ def inject_hooks(
 
     env = {
         "DREAM_HOME": str(dream_home),
-        "PYTHONPATH": str(dream_home / "scripts"),
+        "PYTHONPATH": str(SCRIPTS_DIR),
     }
 
     def _hook(script: str, timeout: int) -> dict:
         return {
             "type": "command",
-            "command": f'"{python_exe}" "{dream_home / "scripts" / script}"',
+            "command": f'"{python_exe}" "{SCRIPTS_DIR / script}"',
             "timeout": timeout,
             "env": env,
         }
@@ -205,7 +231,7 @@ def register_task_scheduler(
     dream_home: pathlib.Path,
     dry_run: bool,
 ) -> bool:
-    scheduler_py = dream_home / "scripts" / "scheduler.py"
+    scheduler_py = SCRIPTS_DIR / "scheduler.py"
     task_run = f'"{python_exe}" "{scheduler_py}" --once'
     cmd = [
         "schtasks", "/Create",
@@ -260,18 +286,18 @@ def main() -> None:
     print(f"  dry-run    : {args.dry_run}")
     print()
 
-    # Step 1 — Python 3.12
-    print("[1/4] Detecting Python 3.12 with dream deps...")
-    python_exe = find_python312()
+    # Step 1 — Python 3.11+
+    print("[1/4] Detecting Python 3.11+ with dream deps...")
+    python_exe = find_python()
     if not python_exe:
-        print("  ERROR: Python 3.12 not found.")
-        print("  Install from https://www.python.org/downloads/ and ensure '3.12' is in PATH.")
+        print("  ERROR: Python 3.11+ not found.")
+        print("  Install from https://www.python.org/downloads/ and ensure it is in PATH.")
         sys.exit(1)
     print(f"  Found : {python_exe}")
     if not verify_dream_deps(python_exe):
+        req = SCRIPTS_DIR.parent / "requirements.txt"
         print(f"  WARN  : dream deps not installed in {python_exe}")
-        print(f"  Run   : {python_exe} -m pip install lancedb mcp sentence-transformers")
-        print(f"          networkx cryptography psutil rank-bm25 apscheduler fastmcp")
+        print(f'  Run   : "{python_exe}" -m pip install -r "{req}"')
         print("  Continuing setup — deps can be installed after registration.")
 
     # Schema bootstrap
