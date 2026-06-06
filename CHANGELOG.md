@@ -5,6 +5,24 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-06-06
+
+### Fixed
+- **MCP -32001 timeouts on the first model-backed call (`store_event`, `search_semantic`, `load_context`)** — the ~80 s lazy sentence-transformers import plus the bge-m3 load happened inside the first tool call, past the ~30 s client timeout; the call could then complete server-side minutes later, reading as a failed-but-landed write. `_bootstrap` now preloads the embedder in its daemon thread after schema and metrics, so the handshake stays non-blocking and the first tool call answers in time. Opt out with `DREAM_PRELOAD_EMBEDDER=0`.
+- **SECURISE dead-lock on an empty graph** — a freshly initialised PGT reports `vitality_avg = 0.0`, which tripped the breaker into SECURISE; consolidation refuses to run in SECURISE, so nothing could ever populate the graph, and manual `set_mode NORMAL` was overwritten by the next health probe. `HealthProbe` now carries `active_nodes` and the vitality trigger only applies when at least one active node exists. `health_check` exposes `active_nodes`. Two regression tests added.
+- **Nightly task broken by plugin cache garbage collection** — registrations pointed into the plugin manager's versioned cache; a plugin update deleted the referenced `scheduler.py` ("can't open file ... No such file or directory" in `nightly.log`) and the 02:05 task failed every night. `setup_windows.py` now deploys a stable copy of the scripts to `DREAM_HOME/scripts` and registers the MCP server, the hooks and the task against that copy, through a `nightly.cmd` wrapper (schtasks /TR is capped at 261 characters).
+- `setup_windows.py` — dependency verification timeout raised from 20 s to 300 s (the probe import alone takes ~80 s cold); `/RL HIGHEST` dropped from task creation (fails without an elevated shell); literal `\n` printed by the step 4 banner (raw string bug); stdout/stderr forced to UTF-8 so cp1252 consoles no longer crash on Unicode output.
+
+### Changed
+- Default consolidation and counterfactual model: `gemma4:26b` → `gemma4:12b` (26b retired on 2026-06-05: 17 GB pull, no fit in 16 GB RAM). Updated in `config/mcp_servers.json`, `setup_windows.py` and the README (model table, pull command, env var defaults).
+- `.gitignore` — runtime `logs/` excluded.
+
+### Added
+- README section "Dépannage Windows (terrain)" — field-tested traps and their correct reading: -32001 semantics with idempotent uuid retry, plugin-cache path death, broken PATH/PATHEXT in spawned shells, filesystem tools misreporting `DREAM_HOME` as empty, OneDrive sandbox truncation, Ollama 412 on `gemma4:12b`, RAM margin, swallowed stdout.
+- README note on the circuit breaker bootstrap exemption.
+
+---
+
 ## [0.4.0] — 2026-06-03
 
 ### Fixed

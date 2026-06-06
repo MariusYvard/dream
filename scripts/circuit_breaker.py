@@ -24,6 +24,14 @@ class HealthProbe:
     vitality_avg: float
     ram_peak_mb: float
     ledger_merkle_ok: bool
+    # Number of active base nodes backing vitality_avg. An EMPTY graph reports
+    # vitality_avg = 0.0, which must not be read as "unhealthy": tripping
+    # SECURISE on an empty graph deadlocks the stack, because consolidation
+    # (the only autonomous path that raises vitality) refuses to run in
+    # SECURISE. Bootstrap exemption: the vitality trigger only applies when at
+    # least one active node exists. Defaults to 1 so existing callers keep the
+    # historical behaviour.
+    active_nodes: int = 1
 
 
 @dataclass
@@ -51,7 +59,7 @@ def evaluate(probe: HealthProbe) -> CircuitState:
 
     if (
         not probe.ledger_merkle_ok
-        or probe.vitality_avg < 0.4
+        or (probe.active_nodes > 0 and probe.vitality_avg < 0.4)
         or probe.ram_peak_mb > 15000
     ):
         target = "SECURISE"

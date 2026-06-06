@@ -22,8 +22,8 @@
         "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/scripts",
         "DREAM_REDIS_HOST": "127.0.0.1",
         "DREAM_REDIS_PORT": "6379",
-        "DREAM_CONSOLIDATION_MODEL": "gemma4:26b",
-        "DREAM_COUNTERFACTUAL_MODEL": "gemma4:26b"
+        "DREAM_CONSOLIDATION_MODEL": "gemma4:12b",
+        "DREAM_COUNTERFACTUAL_MODEL": "gemma4:12b"
       }
     }
   }

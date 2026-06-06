@@ -38,6 +38,9 @@ topics/
 # Circuit breaker state — machine-specific
 circuit.json
 
+# Runtime logs (nightly cycle, consolidation)
+logs/
+
 # Dream index rebuilt each cycle
 CLAUDE.md
 

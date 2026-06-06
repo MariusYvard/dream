@@ -337,11 +337,12 @@ def load_context(goal_text: str, token_budget: int = 2000, vitality_min: float =
 def health_check() -> dict[str, Any]:
     """Return a snapshot of the dream stack health."""
     with _conn() as conn:
-        vit_row = conn.execute("SELECT AVG(vitality) FROM nodes WHERE status = 'active'").fetchone()
+        vit_row = conn.execute("SELECT AVG(vitality), COUNT(*) FROM nodes WHERE status = 'active'").fetchone()
         hitl_row = conn.execute("SELECT COUNT(*) FROM hitl_queue WHERE resolved_at IS NULL").fetchone()
 
     ledger_ok = ledger_sign.verify()
     vitality_avg = float(vit_row[0] or 0.0)
+    active_nodes = int(vit_row[1] or 0)
     hitl_pending = int(hitl_row[0] or 0)
 
     from ollama_health import ollama_up
@@ -366,6 +367,7 @@ def health_check() -> dict[str, Any]:
         vitality_avg=vitality_avg,
         ram_peak_mb=ram_peak,
         ledger_merkle_ok=ledger_ok,
+        active_nodes=active_nodes,
     )
     state = circuit_breaker.evaluate(snapshot)
 
@@ -382,6 +384,7 @@ def health_check() -> dict[str, Any]:
         "mode": state.mode,
         "green_streak": state.green_streak,
         "vitality_avg": vitality_avg,
+        "active_nodes": active_nodes,
         "ledger_merkle_ok": ledger_ok,
         "hitl_pending": hitl_pending,
         "ollama_up": ollama_reachable,
@@ -479,13 +482,38 @@ def _ensure_schema() -> None:
         print(f"[mcp_server] schema self-heal skipped: {exc}", file=sys.stderr)
 
 
+def _preload_ml() -> None:
+    """Warm the embedding stack in the background.
+
+    The first sentence-transformers import plus the bge-m3 model load takes
+    ~80 s on a cold machine. When it happens lazily inside the first
+    store_event / search_semantic / load_context call, the MCP client times
+    out (-32001) while the server is still loading; the call may then complete
+    server-side minutes later, which reads as a failed-but-landed write.
+    Preloading here, off the critical path, keeps the `initialize` handshake
+    fast AND lets the first tool call answer within the client timeout.
+    Disable with DREAM_PRELOAD_EMBEDDER=0 (e.g. on RAM-starved machines).
+    """
+    if os.environ.get("DREAM_PRELOAD_EMBEDDER", "1").strip().lower() in {"0", "false", "no"}:
+        print("[mcp_server] embedder preload disabled by env", file=sys.stderr)
+        return
+    try:
+        from mcp_search_activation import embedder
+
+        embedder().encode("warmup", normalize_embeddings=True)
+        print("[mcp_server] embedder preloaded", file=sys.stderr)
+    except Exception as exc:  # never let a preload failure kill the server
+        print(f"[mcp_server] embedder preload skipped: {exc}", file=sys.stderr)
+
+
 def _bootstrap() -> None:
     """Run startup side-effects off the critical path.
 
     `mcp.run()` must reach its stdio loop and answer the `initialize` request
-    well within the host timeout (60 s). Schema bootstrap and the metrics
-    endpoint are therefore done here, in a daemon thread, never blocking the
-    handshake even on a slow or heavily loaded machine.
+    well within the host timeout (60 s). Schema bootstrap, the metrics
+    endpoint and the embedder preload are therefore done here, in a daemon
+    thread, never blocking the handshake even on a slow or heavily loaded
+    machine.
     """
     try:
         _ensure_schema()
@@ -495,6 +523,7 @@ def _bootstrap() -> None:
         prometheus_metrics.serve()
     except Exception as exc:  # port already bound by a sibling instance, etc.
         print(f"[mcp_server] metrics endpoint skipped: {exc}", file=sys.stderr)
+    _preload_ml()
 
 
 if __name__ == "__main__":

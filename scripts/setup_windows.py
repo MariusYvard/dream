@@ -24,14 +24,25 @@ import argparse
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 from typing import Optional
 
-# The server scripts live next to this file (the plugin root), NOT inside
-# DREAM_HOME. DREAM_HOME holds data only. Registering the data directory as the
-# code directory was the original bug: the path did not exist and the host
-# could not launch the server.
+# Windows consoles and redirected pipes may default to cp1252; any Unicode in
+# our output then crashes the script (bit the very first smoke tests).
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+# Where THIS copy of the scripts lives, often the plugin manager's cache. That
+# cache path is EPHEMERAL: it changes on every plugin update and the old copy
+# is deleted, which silently breaks anything registered against it (MCP server
+# entry, hooks, nightly task — all bitten in production: "can't open file ...
+# scheduler.py"). Setup therefore DEPLOYS a stable copy of the scripts into
+# DREAM_HOME/scripts and registers everything against that copy.
 SCRIPTS_DIR = pathlib.Path(__file__).resolve().parent
 
 # ---------------------------------------------------------------------------
@@ -92,9 +103,11 @@ find_python312 = find_python
 def verify_dream_deps(python_exe: str) -> bool:
     """Return True if the given Python has all mandatory dream deps."""
     probe = "import lancedb, mcp, sentence_transformers, networkx, cryptography, apscheduler"
+    # sentence_transformers alone takes ~80 s to import on a cold machine; the
+    # original 20 s timeout made setup crash in the middle of verification.
     r = subprocess.run(
         [python_exe, "-c", probe],
-        capture_output=True, text=True, timeout=20,
+        capture_output=True, text=True, timeout=300,
     )
     return r.returncode == 0
 
@@ -119,19 +132,54 @@ def apply_schema(python_exe: str, dream_home: pathlib.Path, dry_run: bool) -> bo
 
 
 # ---------------------------------------------------------------------------
+# Stable script deployment — DREAM_HOME/scripts survives plugin updates
+# ---------------------------------------------------------------------------
+
+def deploy_scripts(dream_home: pathlib.Path, dry_run: bool) -> pathlib.Path:
+    """Copy the scripts (plus graph_schema.sql and requirements.txt) into
+    DREAM_HOME/scripts and return that path.
+
+    Registrations must never point into the plugin manager cache: that path is
+    versioned and garbage-collected. DREAM_HOME survives plugin updates, so
+    the MCP server, the hooks and the nightly task keep working after one.
+    """
+    target = dream_home / "scripts"
+    if dry_run:
+        print(f"  DRY-RUN: would copy {SCRIPTS_DIR} -> {target}")
+        return target
+    target.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for src in SCRIPTS_DIR.glob("*.py"):
+        shutil.copy2(src, target / src.name)
+        copied += 1
+    sql = SCRIPTS_DIR / "graph_schema.sql"
+    if sql.exists():
+        shutil.copy2(sql, target / sql.name)
+        copied += 1
+    req = SCRIPTS_DIR.parent / "requirements.txt"
+    if req.exists():
+        shutil.copy2(req, target / "requirements.txt")
+        copied += 1
+    print(f"  OK: {copied} files deployed to {target}")
+    return target
+
+
+# ---------------------------------------------------------------------------
 # Shared MCP env — mirrors config/mcp_servers.json so the manual and
 # plugin-manager install paths register the same environment.
 # ---------------------------------------------------------------------------
 
-def _mcp_env(dream_home: pathlib.Path) -> dict:
+def _mcp_env(dream_home: pathlib.Path, scripts_dir: pathlib.Path) -> dict:
     env = os.environ
     return {
         "DREAM_HOME": str(dream_home),
-        "PYTHONPATH": str(SCRIPTS_DIR),
+        "PYTHONPATH": str(scripts_dir),
         "DREAM_REDIS_HOST": env.get("DREAM_REDIS_HOST", "127.0.0.1"),
         "DREAM_REDIS_PORT": env.get("DREAM_REDIS_PORT", "6379"),
-        "DREAM_CONSOLIDATION_MODEL": env.get("DREAM_CONSOLIDATION_MODEL", "gemma4:26b"),
-        "DREAM_COUNTERFACTUAL_MODEL": env.get("DREAM_COUNTERFACTUAL_MODEL", "gemma4:26b"),
+        # gemma4:26b was retired (17 GB pull, does not fit in 16 GB RAM);
+        # gemma4:12b is the supported consolidation model since 2026-06-05.
+        "DREAM_CONSOLIDATION_MODEL": env.get("DREAM_CONSOLIDATION_MODEL", "gemma4:12b"),
+        "DREAM_COUNTERFACTUAL_MODEL": env.get("DREAM_COUNTERFACTUAL_MODEL", "gemma4:12b"),
     }
 
 
@@ -142,6 +190,7 @@ def _mcp_env(dream_home: pathlib.Path) -> dict:
 def inject_mcp_config(
     python_exe: str,
     dream_home: pathlib.Path,
+    scripts_dir: pathlib.Path,
     dry_run: bool,
 ) -> bool:
     config_path = pathlib.Path(os.environ.get("APPDATA", "")) / "Claude" / "claude_desktop_config.json"
@@ -158,8 +207,8 @@ def inject_mcp_config(
 
     mcp_entry = {
         "command": python_exe,
-        "args": [str(SCRIPTS_DIR / "mcp_server.py")],
-        "env": _mcp_env(dream_home),
+        "args": [str(scripts_dir / "mcp_server.py")],
+        "env": _mcp_env(dream_home, scripts_dir),
     }
     config.setdefault("mcpServers", {})["dream"] = mcp_entry
 
@@ -182,6 +231,7 @@ def inject_mcp_config(
 def inject_hooks(
     python_exe: str,
     dream_home: pathlib.Path,
+    scripts_dir: pathlib.Path,
     dry_run: bool,
 ) -> bool:
     settings_path = pathlib.Path.home() / ".claude" / "settings.json"
@@ -196,13 +246,13 @@ def inject_hooks(
 
     env = {
         "DREAM_HOME": str(dream_home),
-        "PYTHONPATH": str(SCRIPTS_DIR),
+        "PYTHONPATH": str(scripts_dir),
     }
 
     def _hook(script: str, timeout: int) -> dict:
         return {
             "type": "command",
-            "command": f'"{python_exe}" "{SCRIPTS_DIR / script}"',
+            "command": f'"{python_exe}" "{scripts_dir / script}"',
             "timeout": timeout,
             "env": env,
         }
@@ -229,27 +279,43 @@ def inject_hooks(
 def register_task_scheduler(
     python_exe: str,
     dream_home: pathlib.Path,
+    scripts_dir: pathlib.Path,
     dry_run: bool,
 ) -> bool:
-    scheduler_py = SCRIPTS_DIR / "scheduler.py"
-    task_run = f'"{python_exe}" "{scheduler_py}" --once'
+    """Create the nightly task through a .cmd wrapper.
+
+    Two Windows constraints drive the wrapper: schtasks /TR is hard-capped at
+    261 characters (interpreter + script + log paths do not fit), and the task
+    must survive plugin updates (hence the deployed scripts_dir, never the
+    plugin cache). /RL HIGHEST is deliberately NOT requested: it needs an
+    elevated shell and made task creation fail for standard users.
+    """
+    scheduler_py = scripts_dir / "scheduler.py"
+    wrapper = scripts_dir / "nightly.cmd"
+    log_path = dream_home / "logs" / "nightly.log"
+    wrapper_body = (
+        "@echo off\n"
+        f"set DREAM_HOME={dream_home}\n"
+        f'"{python_exe}" "{scheduler_py}" --once >> "{log_path}" 2>&1\n'
+    )
     cmd = [
         "schtasks", "/Create",
         "/TN", r"Dream\NightlyCycle",
-        "/TR", task_run,
+        "/TR", f'"{wrapper}"',
         "/SC", "DAILY",
         "/ST", "02:05",
-        "/RL", "HIGHEST",   # Run with highest available privileges
         "/F",               # Force-overwrite if task already exists
     ]
 
     if dry_run:
-        print(f"  DRY-RUN: would run: {' '.join(cmd)}")
+        print(f"  DRY-RUN: would write {wrapper} and run: {' '.join(cmd)}")
         return True
 
+    (dream_home / "logs").mkdir(parents=True, exist_ok=True)
+    wrapper.write_text(wrapper_body, encoding="ascii", errors="replace")
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode == 0:
-        print(r"  OK: Task Scheduler task 'Dream\NightlyCycle' created at 02:05")
+        print(r"  OK: Task Scheduler task 'Dream\NightlyCycle' created at 02:05 (runs nightly.cmd)")
         return True
 
     print(f"  WARN: schtasks exited {r.returncode}: {r.stderr.strip()}")
@@ -287,7 +353,7 @@ def main() -> None:
     print()
 
     # Step 1 — Python 3.11+
-    print("[1/4] Detecting Python 3.11+ with dream deps...")
+    print("[1/5] Detecting Python 3.11+ with dream deps...")
     python_exe = find_python()
     if not python_exe:
         print("  ERROR: Python 3.11+ not found.")
@@ -304,17 +370,21 @@ def main() -> None:
     print("\n[1b] Applying SQLite schema (db_init.py)...")
     apply_schema(python_exe, dream_home, args.dry_run)
 
-    # Step 2 — MCP config
-    print("\n[2/4] Injecting mcpServers.dream into claude_desktop_config.json...")
-    inject_mcp_config(python_exe, dream_home, args.dry_run)
+    # Step 2 — stable script deployment
+    print("\n[2/5] Deploying scripts to DREAM_HOME\\scripts (survives plugin updates)...")
+    scripts_dir = deploy_scripts(dream_home, args.dry_run)
 
-    # Step 3 — Hooks
-    print("\n[3/4] Injecting SessionStart + Stop hooks into ~/.claude/settings.json...")
-    inject_hooks(python_exe, dream_home, args.dry_run)
+    # Step 3 — MCP config
+    print("\n[3/5] Injecting mcpServers.dream into claude_desktop_config.json...")
+    inject_mcp_config(python_exe, dream_home, scripts_dir, args.dry_run)
 
-    # Step 4 — Task Scheduler
-    print(r"\n[4/4] Creating Windows Task Scheduler task 'Dream\NightlyCycle' at 02:05...")
-    register_task_scheduler(python_exe, dream_home, args.dry_run)
+    # Step 4 — Hooks
+    print("\n[4/5] Injecting SessionStart + Stop hooks into ~/.claude/settings.json...")
+    inject_hooks(python_exe, dream_home, scripts_dir, args.dry_run)
+
+    # Step 5 — Task Scheduler
+    print("\n[5/5] Creating Windows Task Scheduler task 'Dream\\NightlyCycle' at 02:05...")
+    register_task_scheduler(python_exe, dream_home, scripts_dir, args.dry_run)
 
     print()
     print("=" * 55)

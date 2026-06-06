@@ -52,6 +52,23 @@ class TestEvaluate:
         state = circuit_breaker.evaluate(_healthy_probe(vitality_avg=0.3))
         assert state.mode == "SECURISE"
 
+    def test_empty_graph_does_not_trigger_securise(self):
+        """Bootstrap exemption: an empty graph reports vitality_avg=0.0 but
+        must stay NORMAL, otherwise consolidation (the only autonomous way to
+        populate the graph) is dead-locked behind SECURISE forever."""
+        state = circuit_breaker.evaluate(
+            _healthy_probe(vitality_avg=0.0, active_nodes=0)
+        )
+        assert state.mode == "NORMAL"
+
+    def test_populated_graph_keeps_vitality_trigger(self):
+        """The exemption is strictly for the empty graph: one active node with
+        low vitality still trips SECURISE."""
+        state = circuit_breaker.evaluate(
+            _healthy_probe(vitality_avg=0.1, active_nodes=1)
+        )
+        assert state.mode == "SECURISE"
+
     def test_recovery_requires_3_green_probes(self):
         # Drive into CONSERVATEUR first.
         circuit_breaker.evaluate(_healthy_probe(latency_p95_ms=600))

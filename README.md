@@ -74,7 +74,7 @@ Le score final pondère ces quatre signaux et garde les 5 meilleurs résultats.
 
 ## Le débat des 4 rôles pendant le sommeil
 
-Pendant le cycle nocturne, chaque groupe de notes à consolider passe devant un mini-tribunal interne. Quatre instances du même modèle (`gemma4:26b`) jouent chacune un rôle différent, votent, et un score consensus décide si la note est intégrée :
+Pendant le cycle nocturne, chaque groupe de notes à consolider passe devant un mini-tribunal interne. Quatre instances du même modèle (`gemma4:12b`) jouent chacune un rôle différent, votent, et un score consensus décide si la note est intégrée :
 
 | Rôle | Mission | Poids du vote |
 |---|---|---|
@@ -95,6 +95,8 @@ Chaque écriture dans le graphe est signée avec une clé Ed25519 locale et ajou
 
 ## Les trois modes de fonctionnement (circuit breaker)
 
+> Exemption bootstrap (v0.5.0) : un graphe vide (0 nœud actif) affiche une vitalité moyenne de 0.0 par construction. Ce cas ne déclenche plus SECURISE, sinon la consolidation (seule voie autonome de peuplement du graphe) resterait verrouillée derrière le breaker. Le déclencheur vitalité s'applique dès le premier nœud actif.
+
 Dream surveille en continu sa propre santé. Trois modes possibles :
 
 | Mode | Déclenchement | Comportement |
@@ -112,7 +114,7 @@ Modèles servis via Ollama, tous locaux :
 | Modèle | Rôle | RAM active | Disque |
 |---|---|---|---|
 | `gemma4:e4b` | Sanitisation (P95 cible <500 ms) | ~5 Go | 9.6 Go |
-| `gemma4:26b` | Consolidation et génération contrefactuelle (MoE, 3.8B params actifs sur 25.2B totaux) | ~14 Go | 18 Go |
+| `gemma4:12b` | Consolidation et génération contrefactuelle | ~7.5 Go | 16 Go |
 | `bge-m3` | Embeddings (1024 dimensions) | ~3 Go CPU | 2 Go |
 | `ms-marco-MiniLM-L-6-v2` | Reranking | <0.5 Go | 90 Mo |
 
@@ -137,7 +139,7 @@ pip install -r requirements.txt
 
 # 2. modèles Ollama
 ollama pull gemma4:e4b
-ollama pull gemma4:26b
+ollama pull gemma4:12b
 # bge-m3 et ms-marco se téléchargent automatiquement au premier import
 
 # 3. variables d'environnement (optionnel)
@@ -160,8 +162,8 @@ export DREAM_HOME="$HOME/.dream"
 | `DREAM_HOME` | `~/.dream` | Racine des données |
 | `DREAM_REDIS_HOST` | `127.0.0.1` | Cache hot (fallback mémoire si Redis absent) |
 | `DREAM_REDIS_PORT` | `6379` | Cache hot |
-| `DREAM_CONSOLIDATION_MODEL` | `gemma4:26b` | Modèle Ollama pour le débat |
-| `DREAM_COUNTERFACTUAL_MODEL` | `gemma4:26b` | Modèle Ollama pour le jardin |
+| `DREAM_CONSOLIDATION_MODEL` | `gemma4:12b` | Modèle Ollama pour le débat |
+| `DREAM_COUNTERFACTUAL_MODEL` | `gemma4:12b` | Modèle Ollama pour le jardin |
 | `DREAM_METRICS_PORT` | `9464` | Port de l'endpoint Prometheus |
 | `DREAM_METRICS_ENABLED` | `1` | Mettre à `0` pour couper l'endpoint Prometheus |
 
@@ -218,6 +220,21 @@ Le serveur expose Prometheus sur `127.0.0.1:9464`. Métriques clés :
 | Pendant | Claude répond, tu corriges, vous décidez ensemble. Le hook Stop pousse les phrases utiles dans le buffer dès que tu fermes. |
 | 02:05 | Le scheduler lance le cycle nocturne. ~10 minutes de débat 4 rôles, écriture du graphe, mise à jour de la vitalité, rebuild de l'index. |
 | Lendemain | Tu ouvres une nouvelle session. L'index a été reconstruit avec les apprentissages d'hier. |
+
+## Dépannage Windows (terrain)
+
+Pièges rencontrés en production sur Windows 11, avec leur lecture correcte :
+
+| Symptôme | Lecture correcte |
+|---|---|
+| `MCP error -32001` sur `store_event` ou `load_context` | Avant v0.5.0, l'écriture aboutissait souvent côté serveur quelques minutes après le timeout client. Réutiliser le même `id` (uuid4) en retry est idempotent. Vérification : `SELECT COUNT(*) FROM nodes`. Le préchargement de l'embedder (v0.5.0) fait disparaître le cas, désactivable via `DREAM_PRELOAD_EMBEDDER=0`. |
+| `can't open file ... scheduler.py` dans `logs/nightly.log` | La tâche planifiée pointe vers un cache de plugin supprimé. Relancer `python scripts/setup_windows.py` : depuis v0.5.0 il déploie une copie stable dans `DREAM_HOME\scripts` et enregistre tout contre elle. |
+| `CantActivateDocumentInPipeline` dans un shell spawné | PATH et PATHEXT vides dans certains shells automatisés (Desktop Commander). Préfixer chaque commande : `$env:PATHEXT=".COM;.EXE;.BAT;.CMD"; $env:PATH="$env:SystemRoot\system32;$env:SystemRoot;$env:PATH"`. |
+| Un outil filesystem voit `%USERPROFILE%\.dream` vide | Faux négatif observé (taille 0, aucun enfant listé) alors que le dossier est peuplé. Trancher avec `Get-ChildItem -Force` dans PowerShell avant tout diagnostic. |
+| Fichiers vus tronqués depuis un sandbox monté sur OneDrive | Désynchronisation OneDrive. Lire et écrire depuis la machine locale, ou passer par git. |
+| Erreur 412 d'Ollama sur `gemma4:12b` | Version d'Ollama trop ancienne. Requiert >= 0.30.3. |
+| RAM saturée pendant le cycle | `gemma4:12b` chargé laisse environ 0.3 Go libres sur une machine 16 Go. Fermer les applications lourdes avant 02:05 ou définir `DREAM_PRELOAD_EMBEDDER=0`. |
+| Sortie Python invisible en arrière-plan | Les subprocess PowerShell avalent stdout sous redirection. Écrire les résultats dans des fichiers, jamais sur stdout. |
 
 ## Licence
 
