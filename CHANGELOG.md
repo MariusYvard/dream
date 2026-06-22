@@ -5,6 +5,21 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.0] — 2026-06-22
+
+### Added
+- **Topic tree, a PageIndex-style table of contents over memory** (`scripts/topic_tree.py`) — the flat `topics/*.md` are folded into a hierarchical tree of summaries (`topics/_tree.json`), rebuilt each cycle. `_rebuild_claude_md` now renders that tree as a hierarchical `CLAUDE.md` index instead of a flat top-30 list, falling back to the node query when the tree is empty.
+- **Vectorless, reasoning-based retrieval** (`scripts/reasoning_retrieval.py`) — `load_context` now tries a PageIndex-inspired path first: a local LLM reasons over the topic tree and picks the relevant nodes by relevance, not embedding cosine. This keeps the bge-m3 embedder off the `load_context` hot path (its cold load was the `-32001` cause) and degrades to the embedding ranking when the model is unreachable.
+- **Retrieval traceability** — the bundle now carries `retrieval_mode` (`reasoning` or `embedding`), `retrieval_rationale` (the model's one-line justification) and `selected_node_ids`, so the warm-up context is explainable instead of opaque hybrid scores.
+- `tests/test_pageindex.py` — 7 tests covering the tree build, the LLM outline and node collection, the markdown index, and the reasoning selector (happy path, empty tree, Ollama-down fallback).
+
+### Changed
+- `load_context.build_bundle` is split into `_build_reasoning` (vectorless, tried first) and `_build_embedding` (the previous path, now the fallback), sharing one SQLite extras query. The change is additive: consumers reading `claude_md` / `topics` are unaffected.
+
+> Idea credit: the tree-of-summaries and reasoning-over-index approach is inspired by [PageIndex](https://github.com/VectifyAI/PageIndex) (MIT). No code was copied; this is a from-scratch adaptation to the PGT, kept as a complement to the graph and vector search, not a replacement.
+
+---
+
 ## [0.6.0] — 2026-06-22
 
 ### Added

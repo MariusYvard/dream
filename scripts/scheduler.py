@@ -367,6 +367,20 @@ def _write_topic(cluster_type: str, summary: str) -> None:
 
 
 def _rebuild_claude_md() -> int:
+    # Prefer the hierarchical tree index (a table of contents); the tree json is
+    # also what load_context reasons over. Fall back to the flat node list.
+    try:
+        import topic_tree
+
+        tree = topic_tree.build_and_save()
+        if tree.get("children"):
+            text = topic_tree.render_index_md(tree)
+            CLAUDE_MD.parent.mkdir(parents=True, exist_ok=True)
+            CLAUDE_MD.write_text(text, encoding="utf-8")
+            return len(text) // 4
+    except Exception as exc:
+        log.warning("tree-based CLAUDE.md skipped: %s", exc)
+
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             "SELECT type, content FROM nodes WHERE vitality > 0.5 AND scenario = 'base' ORDER BY vitality DESC LIMIT 30"

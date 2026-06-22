@@ -96,19 +96,7 @@ def _trim_to_budget(items: list[dict[str, Any]], budget: int) -> list[dict[str, 
     return out
 
 
-def build_bundle(goal_text: str, token_budget: int = 2000, vitality_min: float = 0.5, topics_exclude: list[str] | None = None) -> dict[str, Any]:
-    if token_budget < 256:
-        raise ValueError("token_budget too small")
-
-    cache_key = f"ctx:{hash((goal_text, token_budget, vitality_min))}"
-    cached = cache_layer.get(cache_key)
-    if cached is not None:
-        return cached
-
-    goal_vec = embedder().encode(goal_text, normalize_embeddings=True)
-
-    topics = _rank_topics(_load_topics(topics_exclude), goal_vec)
-
+def _sql_extras(vitality_min: float) -> tuple[list, list]:
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute(
@@ -122,20 +110,76 @@ def build_bundle(goal_text: str, token_budget: int = 2000, vitality_min: float =
             "WHERE h.resolved_at IS NULL ORDER BY h.created_at ASC LIMIT 5"
         )
         pending_hitl = [{"id": r[0], "summary": r[1][:240]} for r in cur.fetchall()]
+    return recent_decisions, pending_hitl
 
+
+def _build_reasoning(goal_text: str, token_budget: int, vitality_min: float) -> dict[str, Any] | None:
+    """PageIndex-style vectorless path: an LLM reasons over the topic tree and
+    picks what is relevant, no embedder on the hot path. Returns None on any
+    failure so build_bundle falls back to the embedding path."""
+    try:
+        import reasoning_retrieval
+        import topic_tree
+
+        tree = topic_tree.load_tree()
+        sel = reasoning_retrieval.select(goal_text, tree)
+        if sel is None:
+            return None
+        chosen = topic_tree.collect(tree, sel.get("selected", []))
+        topics = [
+            {"name": e["node_id"], "content": e["summary"], "tokens": _approx_tokens(e["summary"])}
+            for e in chosen
+        ]
+        claude_md = CLAUDE_MD.read_text(encoding="utf-8") if CLAUDE_MD.exists() else ""
+        claude_md_tokens = _approx_tokens(claude_md)
+        topics_trimmed = _trim_to_budget(topics, max(0, token_budget - claude_md_tokens))
+        recent_decisions, pending_hitl = _sql_extras(vitality_min)
+        return {
+            "claude_md": claude_md,
+            "topics": topics_trimmed,
+            "recent_decisions": recent_decisions,
+            "pending_hitl": pending_hitl,
+            "total_tokens": claude_md_tokens + sum(t["tokens"] for t in topics_trimmed),
+            "retrieval_mode": "reasoning",
+            "retrieval_rationale": sel.get("rationale", ""),
+            "selected_node_ids": [t["name"] for t in topics_trimmed],
+        }
+    except Exception:
+        return None
+
+
+def _build_embedding(goal_text: str, token_budget: int, vitality_min: float,
+                     topics_exclude: list[str] | None) -> dict[str, Any]:
+    goal_vec = embedder().encode(goal_text, normalize_embeddings=True)
+    topics = _rank_topics(_load_topics(topics_exclude), goal_vec)
     claude_md = CLAUDE_MD.read_text(encoding="utf-8") if CLAUDE_MD.exists() else ""
     claude_md_tokens = _approx_tokens(claude_md)
-
-    remaining = max(0, token_budget - claude_md_tokens)
-    topics_trimmed = _trim_to_budget(topics, remaining)
-    total = claude_md_tokens + sum(t["tokens"] for t in topics_trimmed)
-
-    bundle = {
+    topics_trimmed = _trim_to_budget(topics, max(0, token_budget - claude_md_tokens))
+    recent_decisions, pending_hitl = _sql_extras(vitality_min)
+    return {
         "claude_md": claude_md,
         "topics": topics_trimmed,
         "recent_decisions": recent_decisions,
         "pending_hitl": pending_hitl,
-        "total_tokens": total,
+        "total_tokens": claude_md_tokens + sum(t["tokens"] for t in topics_trimmed),
+        "retrieval_mode": "embedding",
+        "retrieval_rationale": "",
+        "selected_node_ids": [t["name"] for t in topics_trimmed],
     }
+
+
+def build_bundle(goal_text: str, token_budget: int = 2000, vitality_min: float = 0.5, topics_exclude: list[str] | None = None) -> dict[str, Any]:
+    if token_budget < 256:
+        raise ValueError("token_budget too small")
+
+    cache_key = f"ctx:{hash((goal_text, token_budget, vitality_min))}"
+    cached = cache_layer.get(cache_key)
+    if cached is not None:
+        return cached
+
+    bundle = _build_reasoning(goal_text, token_budget, vitality_min)
+    if bundle is None:
+        bundle = _build_embedding(goal_text, token_budget, vitality_min, topics_exclude)
+
     cache_layer.set(cache_key, bundle, ttl=300)
     return bundle
