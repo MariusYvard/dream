@@ -28,6 +28,23 @@ retrieval recall (embedding search, no rerank, no LLM):
   recall@5: ...
 ```
 
+## consolidation_eval.py
+
+Asks whether the nightly cycle *improves* the memory, not just whether retrieval
+works. It seeds a day buffer where a newer decision supersedes an older one (the
+database moved from MySQL to PostgreSQL) plus noise, runs the real dream cycle,
+then checks that the top retrieved node sits closer to the current truth than to
+the stale one (embedding similarity, robust to the debate paraphrasing), and
+that the noise was dropped.
+
+```bash
+python eval/consolidation_eval.py             # needs a local Ollama (the debate)
+python eval/consolidation_eval.py --selftest  # deterministic, no stack
+```
+
+It is non-deterministic (a multi-agent LLM debate) and skips cleanly when Ollama
+is down. Treat the result as a signal, not a fixed score.
+
 ## Scope and honesty
 
 The dataset is synthetic and small, with deliberate near-neighbour distractors
