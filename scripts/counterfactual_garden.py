@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-GEN_MODEL = os.environ.get("DREAM_COUNTERFACTUAL_MODEL", "gemma4:26b")
+GEN_MODEL = os.environ.get("DREAM_COUNTERFACTUAL_MODEL", "gemma4:12b")
 
 GENERATOR_PROMPT = (
     "You are the Counterfactual Generator. Given the seed event and the local context, "

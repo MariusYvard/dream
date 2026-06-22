@@ -5,6 +5,16 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.1] — 2026-06-22
+
+### Added
+- `examples/quickstart.py` and `examples/README.md` — a self-contained end-to-end run in a throwaway `DREAM_HOME`: initialise the stores, write memories into the PGT (vector + SQLite + signed Ed25519 ledger + graph), build the topic tree, and assemble a session-context bundle. Runs without a local LLM (`load_context` falls back from reasoning to embedding ranking, the nightly debate is shown as a follow-up command). Lowers the "try it" barrier from a full plugin install to one command.
+
+### Fixed
+- `counterfactual_garden.py` default model was the retired `gemma4:26b` (the same class of bug fixed in `consensus_router` for 0.6.0). Corrected to `gemma4:12b` so a fresh install's first counterfactual pass does not fail on a missing model.
+
+---
+
 ## [0.7.0] — 2026-06-22
 
 ### Added

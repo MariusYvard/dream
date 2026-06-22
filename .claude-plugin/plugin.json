@@ -1,6 +1,6 @@
 {
   "name": "dream",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Cycle de reve cognitif pour Claude. Palais Graphique Temporel 2.0, sanitisation locale, debat multi-agents, jardin contrefactuel, ledger Ed25519 et metriques Prometheus. Architecture hybride <16 Go RAM.",
   "author": {
     "name": "Marius Yvard",
