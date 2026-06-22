@@ -41,6 +41,7 @@ REQUIRED = {
     "prometheus-client": "prometheus_client",
     "redis": "redis",
     "psutil": "psutil",
+    "pandas": "pandas",
 }
 
 EXPECTED_TABLES = {"nodes", "edges", "ledger", "ledger_state", "hitl_queue"}
@@ -172,6 +173,21 @@ def check_startup_cost() -> None:
         _record("WARN", "Startup cost", detail + " (slow; risks handshake timeout under load)")
     else:
         _record("FAIL", "Startup cost", detail + " (will time out the MCP handshake)")
+
+
+def run_quick() -> list[str]:
+    """Cheap subset of checks (no ML import, no server import) for the
+    SessionStart self-check. Returns human-readable problem strings; an empty
+    list means nothing drifted."""
+    _RESULTS.clear()
+    for check in (check_interpreter, check_dependencies, check_dream_home, check_schema, check_registration):
+        try:
+            check()
+        except Exception as exc:
+            _record("FAIL", check.__name__, f"check raised {exc!r}")
+    problems = [f"{label}: {detail}" for level, label, detail in _RESULTS if level == "FAIL"]
+    _RESULTS.clear()
+    return problems
 
 
 def main() -> int:

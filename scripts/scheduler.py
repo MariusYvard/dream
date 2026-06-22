@@ -33,6 +33,11 @@ from mcp_search_activation import embedder
 from ollama_health import ollama_up
 from vitality_engine import VitalityInputs, compute as vitality_compute, tier_for
 
+import load_bearing
+import node_store
+import observability
+from sanitize_local import sanitize as _sanitize_full
+
 DREAM_HOME = Path(os.environ.get("DREAM_HOME", Path.home() / ".dream"))
 DB_PATH = DREAM_HOME / "pgt.sqlite"
 TOPICS_DIR = DREAM_HOME / "topics"
@@ -132,12 +137,32 @@ def _cluster_events(events: list[dict[str, Any]], sim_threshold: float = 0.25) -
 def _load_bearing(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     keep: list[dict[str, Any]] = []
     for ev in events:
-        text = ev.get("content", "").lower()
         if ev.get("type") in {"decision", "error"}:
             keep.append(ev); continue
-        if any(tok in text for tok in ("correction", "il faut", "ne plus", "decide", "decision", "regle", "convention")):
-            keep.append(ev); continue
+        try:
+            if load_bearing.classify(ev.get("content", "")):
+                keep.append(ev)
+        except Exception:
+            # never lose the cycle to a classifier hiccup: degrade to lexical
+            if load_bearing.lexical_hit(ev.get("content", "")):
+                keep.append(ev)
     return keep
+
+
+def _upgrade_sanitisation(events: list[dict[str, Any]]) -> int:
+    """Run the full LLM redaction on events the Stop hook only regex-redacted,
+    so personal data is scrubbed before it reaches topics or the graph. The hook
+    keeps the fast path; the heavy pass happens here, off session-exit latency."""
+    upgraded = 0
+    for ev in events:
+        if (ev.get("meta") or {}).get("sanitised") == "regex":
+            try:
+                ev["content"] = _sanitize_full(ev.get("content", "")).text
+                ev.setdefault("meta", {})["sanitised"] = "llm"
+                upgraded += 1
+            except Exception:
+                pass
+    return upgraded
 
 
 def _graph_neighbours(cluster_type: str, limit: int = 12) -> str:
@@ -396,7 +421,7 @@ def _publish_health_metrics(accepted: int, hitl: int, rejected: int) -> None:
         log.warning("gauge publish skipped: %s", exc)
 
 
-def run_cycle() -> dict[str, Any]:
+def _run_cycle_inner() -> dict[str, Any]:
     cycle_id = str(uuid.uuid4())
     started = _now()
     log.info("cycle %s starting", cycle_id)
@@ -418,15 +443,16 @@ def run_cycle() -> dict[str, Any]:
 
     raw = iter_buffer()
     metrics["raw_events"] = len(raw)
-    load_bearing = _load_bearing(raw)
-    metrics["load_bearing"] = len(load_bearing)
-    if len(load_bearing) < 3:
-        log.info("buffer too sparse (%d), skipping cycle", len(load_bearing))
+    metrics["sanitised_upgraded"] = _upgrade_sanitisation(raw)
+    lb_events = _load_bearing(raw)
+    metrics["load_bearing"] = len(lb_events)
+    if len(lb_events) < 3:
+        log.info("buffer too sparse (%d), skipping cycle", len(lb_events))
         return {"status": "skipped_sparse", **metrics}
 
     accepted = hitl = rejected = 0
     REJECTED_DIR.mkdir(parents=True, exist_ok=True)
-    for cluster in _cluster_events(load_bearing):
+    for cluster in _cluster_events(lb_events):
         text = "\n".join(ev["content"] for ev in cluster["events"])
         neighbours_json = _graph_neighbours(cluster["type"])
         try:
@@ -439,6 +465,22 @@ def run_cycle() -> dict[str, Any]:
         if result.decision == "accept":
             _write_topic(cluster["type"], result.summary)
             ledger_sign.append_leaf("consolidate_accept", None, {"cluster_id": cluster["cluster_id"], "score": result.score_final})
+            # Also materialise the consolidated fact as a graph node so
+            # search_semantic, query_relations and the CLAUDE.md index reflect
+            # consolidation, not just store_event. Best-effort: a node write
+            # must not abort the cycle.
+            try:
+                node_store.persist_node(
+                    content=result.summary,
+                    node_type=cluster["type"],
+                    vitality=0.9,
+                    confidence=result.score_final,
+                    source_session="nightly_consolidation",
+                    ledger_op="consolidate_node",
+                )
+            except Exception as exc:
+                log.warning("node persist failed for cluster %s: %s", cluster["cluster_id"], exc)
+                prometheus_metrics.CYCLE_FAILED.labels(phase="persist_node").inc()
             accepted += 1
         elif result.decision == "hitl":
             trail_path = REJECTED_DIR / f"{cluster['cluster_id']}_hitl.json"
@@ -508,6 +550,17 @@ def run_cycle() -> dict[str, Any]:
     prometheus_metrics.CYCLE_COMPLETED.inc()
     log.info("cycle %s done: %s", cycle_id, metrics)
     return {"status": "ok", **metrics}
+
+
+def run_cycle() -> dict[str, Any]:
+    """Run one cycle and record its outcome (every path, including the skips)
+    so health_check exposes last_cycle_status / last_cycle_at."""
+    out = _run_cycle_inner()
+    try:
+        observability.record_cycle(out.get("status", "unknown"), out)
+    except Exception:
+        pass
+    return out
 
 
 def main() -> None:

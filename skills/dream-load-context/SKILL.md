@@ -7,6 +7,8 @@ description: Assemble a token-efficient working context from the PGT for the cur
 
 Produce a session warm-up bundle by pulling the most relevant high-vitality nodes from the PGT.
 
+> Resolve `${DREAM_HOME}` against the live runtime, never the source repo. Run `python scripts/dream_home.py` (it reads `$DREAM_HOME`, then `mcpServers.dream.env.DREAM_HOME` in `claude_desktop_config.json`, then falls back to `~/.dream`). The deployed `DREAM_HOME`, not the checked-out repository, holds the buffer, graph and topics the running stack reads and writes.
+
 ## Instructions for Claude
 
 1. Detect the active goal. Order of resolution:

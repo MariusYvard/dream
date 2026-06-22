@@ -40,10 +40,45 @@ def _load_topics(exclude: list[str] | None) -> list[dict[str, Any]]:
     return topics
 
 
+_EMB_CACHE_PATH = TOPICS_DIR / ".embcache.json"
+
+
+def _topic_embeddings(topics: list[dict[str, Any]]) -> np.ndarray:
+    """Embed topics, reusing a per-content-hash cache so unchanged topics are
+    never re-encoded. Re-encoding every topic on every call was the cold-path
+    cost behind the load_context -32001 timeouts."""
+    import hashlib
+
+    cache: dict[str, list[float]] = {}
+    try:
+        if _EMB_CACHE_PATH.exists():
+            cache = json.loads(_EMB_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        cache = {}
+
+    shas = [hashlib.sha256(t["content"].encode("utf-8")).hexdigest() for t in topics]
+    missing = [t["content"] for t, s in zip(topics, shas) if s not in cache]
+    if missing:
+        fresh = embedder().encode(missing, normalize_embeddings=True)
+        fresh_list = fresh.tolist() if hasattr(fresh, "tolist") else list(fresh)
+        it = iter(fresh_list)
+        for s in shas:
+            if s not in cache:
+                cache[s] = next(it)
+        try:
+            present = set(shas)
+            cache = {k: v for k, v in cache.items() if k in present}  # prune removed topics
+            _EMB_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _EMB_CACHE_PATH.write_text(json.dumps(cache), encoding="utf-8")
+        except Exception:
+            pass
+    return np.asarray([cache[s] for s in shas], dtype=float)
+
+
 def _rank_topics(topics: list[dict[str, Any]], goal_vec: np.ndarray) -> list[dict[str, Any]]:
     if not topics:
         return []
-    emb = embedder().encode([t["content"] for t in topics], normalize_embeddings=True)
+    emb = _topic_embeddings(topics)
     scores = emb @ goal_vec
     for t, s in zip(topics, scores.tolist()):
         t["score"] = float(s)

@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sanitize_local import sanitize
+from sanitize_local import sanitize, sanitize_regex_only
 
 DREAM_HOME = Path(os.environ.get("DREAM_HOME", Path.home() / ".dream"))
 BUFFER_DIR = DREAM_HOME / "buffer"
@@ -25,10 +25,17 @@ def _today_path() -> Path:
     return BUFFER_DIR / f"{dt.date.today().isoformat()}.jsonl"
 
 
-def append_event(payload: dict[str, Any]) -> dict[str, Any]:
-    """Sanitise and append an event. Returns the persisted record."""
+def append_event(payload: dict[str, Any], *, full_llm: bool = True) -> dict[str, Any]:
+    """Sanitise and append an event. Returns the persisted record.
+
+    full_llm=False uses the deterministic regex-only redaction: fast and
+    LLM-free, for the Stop hook critical path. The nightly cycle re-runs the
+    full LLM pass (see scheduler._upgrade_sanitisation) before the content
+    reaches topics or the graph. The record carries meta.sanitised = "regex"
+    or "llm" so the cycle knows which events still need the heavy pass.
+    """
     raw_content = payload.get("content", "")
-    sanitised = sanitize(raw_content)
+    sanitised = sanitize(raw_content) if full_llm else sanitize_regex_only(raw_content)
 
     record = {
         "id": payload.get("id") or str(uuid.uuid4()),
@@ -45,6 +52,7 @@ def append_event(payload: dict[str, Any]) -> dict[str, Any]:
             "output_sha": sanitised.output_sha,
             "replacements": sanitised.replacements,
             "sanitiser_runtime_ms": sanitised.runtime_ms,
+            "sanitised": "llm" if full_llm else "regex",
         },
     }
 

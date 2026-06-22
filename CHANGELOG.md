@@ -5,6 +5,27 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.0] — 2026-06-22
+
+### Added
+- **Observability that makes a silent outage impossible** (`scripts/observability.py`) — a heartbeat line is written to `logs/heartbeat.jsonl` on every hook run (including the no-op paths), every nightly cycle records its outcome to `logs/last_cycle.json` (including the skipped paths that previously returned before any state was written), and `health_check` now reports `last_buffer_write`, `last_cycle_status` and `last_cycle_at`. A 16-day capture outage went unnoticed because the Stop hook logged nothing to disk and `health_check` reported only mode and vitality; that signal now surfaces on day one.
+- **Consolidation grows the graph** (`scripts/node_store.py`) — the nightly `accept` path now materialises each consolidated cluster as a base node (vector + SQLite + graph + ledger) through one shared `persist_node` write path, not just a `topics/*.md` line. Before this, only `store_event` ever created nodes, so `search_semantic`, `query_relations` and the `CLAUDE.md` index never reflected nightly consolidation.
+- **LLM load-bearing classifier** (`scripts/load_bearing.py`) — the "is this worth remembering" decision is now a local-LLM judgment (`gemma4:e4b`) run during the cycle, language-agnostic, with a lexical fast-path, a length floor and a content-hash cache. It degrades to the lexical check when Ollama is unreachable, so the cycle never loses events to a model hiccup. The Stop hook keeps a cheap recall-oriented lexical pre-filter.
+- **SessionStart self-check** — `hook_session_start.py` runs the cheap `doctor.run_quick()` checks (no ML import) at every session start and surfaces registration drift (dead paths, missing deps) to the log and a heartbeat, the exact failure mode that left a dead nightly-task path unnoticed for days.
+- **Weekly backup** (`scripts/backup.py`) — snapshots the irreplaceable state (the SQLite graph through the online backup API, the Ed25519 keys, `topics/`, `graph.gpickle`, `circuit.json`) into `DREAM_HOME/backups/<stamp>/`, keeping the last N. `setup_windows.py` registers a `Dream\WeeklyBackup` task (Sundays 03:00) via a `backup.cmd` wrapper. The graph was wiped once with no recovery path; now there is one.
+- **`scripts/dream_home.py`** — single resolver (`$DREAM_HOME` → `claude_desktop_config.json` → `~/.dream`) so skills and ad-hoc scripts target the deployed runtime, not the source repo. The `dream-consolidate` and `dream-load-context` skills now point at it.
+- `tests/test_improvements.py` — 13 tests covering the regex-only sanitiser, the buffer sanitiser flag, the observability signals, the classifier, the doctor quick-check and DREAM_HOME resolution.
+
+### Changed
+- **Sanitisation moved off the Stop hook critical path** — the hook now writes the buffer with deterministic regex-only redaction (`sanitize_regex_only`, no LLM, no network) and tags the record `meta.sanitised = "regex"`. The nightly cycle upgrades those events with the full `gemma4:e4b` pass (`scheduler._upgrade_sanitisation`) before they reach topics or the graph. Each load-bearing line previously cost a ~30 s LLM call inside the hook, so a session with a handful of them blew the 60 s hook timeout and capture failed mid-way.
+- **`load_context` caches topic embeddings** — topics are embedded against a per-content-hash cache (`topics/.embcache.json`); unchanged topics are never re-encoded. Re-embedding every topic on every call was part of the cold-path cost behind the `load_context` timeouts.
+
+### Fixed
+- **`search_semantic` crashed with `No module named 'pandas'`** — `mcp_search_activation.hybrid_search` calls `.to_pandas()` on the LanceDB result, but `pandas` was never declared. Added to `requirements.txt` and to `doctor.REQUIRED` (doctor previously reported all-green while search was broken).
+- **`consensus_router` default model was the retired `gemma4:26b`** — corrected to `gemma4:12b`, matching `config/mcp_servers.json` and `setup_windows.py`. The env-var override masked it at runtime, but a default-path invocation would have failed.
+
+---
+
 ## [0.5.0] — 2026-06-06
 
 ### Fixed

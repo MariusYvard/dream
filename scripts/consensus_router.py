@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-CONSOLIDATION_MODEL = os.environ.get("DREAM_CONSOLIDATION_MODEL", "gemma4:26b")
+CONSOLIDATION_MODEL = os.environ.get("DREAM_CONSOLIDATION_MODEL", "gemma4:12b")
 
 WEIGHTS = {
     "structural_coherence": 0.25,

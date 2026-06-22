@@ -380,6 +380,8 @@ def health_check() -> dict[str, Any]:
     prometheus_metrics.CIRCUIT_MODE.set(_MODE_CODE.get(state.mode, 0))
     prometheus_metrics.OLLAMA_UP.set(1 if ollama_reachable else 0)
 
+    import observability as _obs
+    _cycle = _obs.read_cycle()
     return {
         "mode": state.mode,
         "green_streak": state.green_streak,
@@ -389,6 +391,9 @@ def health_check() -> dict[str, Any]:
         "hitl_pending": hitl_pending,
         "ollama_up": ollama_reachable,
         "cache_backend": cache_layer.backend(),
+        "last_buffer_write": _obs.last_buffer_write(),
+        "last_cycle_status": _cycle.get("status"),
+        "last_cycle_at": _cycle.get("at"),
         "updated_at": state.updated_at,
     }
 

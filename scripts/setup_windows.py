@@ -323,6 +323,44 @@ def register_task_scheduler(
     return False
 
 
+def register_backup_task(
+    python_exe: str,
+    dream_home: pathlib.Path,
+    scripts_dir: pathlib.Path,
+    dry_run: bool,
+) -> bool:
+    """Weekly backup of the irreplaceable PGT state (Sundays 03:00) via a .cmd
+    wrapper, same constraints as the nightly task."""
+    backup_py = scripts_dir / "backup.py"
+    wrapper = scripts_dir / "backup.cmd"
+    log_path = dream_home / "logs" / "backup.log"
+    wrapper_body = (
+        "@echo off\n"
+        f"set DREAM_HOME={dream_home}\n"
+        f'"{python_exe}" "{backup_py}" >> "{log_path}" 2>&1\n'
+    )
+    cmd = [
+        "schtasks", "/Create",
+        "/TN", r"Dream\WeeklyBackup",
+        "/TR", f'"{wrapper}"',
+        "/SC", "WEEKLY",
+        "/D", "SUN",
+        "/ST", "03:00",
+        "/F",
+    ]
+    if dry_run:
+        print(f"  DRY-RUN: would write {wrapper} and run: {' '.join(cmd)}")
+        return True
+    (dream_home / "logs").mkdir(parents=True, exist_ok=True)
+    wrapper.write_text(wrapper_body, encoding="ascii", errors="replace")
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode == 0:
+        print(r"  OK: Task Scheduler task 'Dream\WeeklyBackup' created (Sun 03:00)")
+        return True
+    print(f"  WARN: schtasks exited {r.returncode}: {r.stderr.strip()}")
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -383,8 +421,12 @@ def main() -> None:
     inject_hooks(python_exe, dream_home, scripts_dir, args.dry_run)
 
     # Step 5 — Task Scheduler
-    print("\n[5/5] Creating Windows Task Scheduler task 'Dream\\NightlyCycle' at 02:05...")
+    print("\n[5/6] Creating Windows Task Scheduler task 'Dream\\NightlyCycle' at 02:05...")
     register_task_scheduler(python_exe, dream_home, scripts_dir, args.dry_run)
+
+    # Step 6 — Weekly backup
+    print("\n[6/6] Creating Windows Task Scheduler task 'Dream\\WeeklyBackup' (Sun 03:00)...")
+    register_backup_task(python_exe, dream_home, scripts_dir, args.dry_run)
 
     print()
     print("=" * 55)

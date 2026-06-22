@@ -7,6 +7,8 @@ description: Run the nightly cognitive consolidation cycle. Use when the user as
 
 Execute the full nightly consolidation cycle over the day buffer. The cycle has 4 phases and runs in a single transactional pass.
 
+> Resolve `${DREAM_HOME}` against the live runtime, never the source repo. Run `python scripts/dream_home.py` (it reads `$DREAM_HOME`, then `mcpServers.dream.env.DREAM_HOME` in `claude_desktop_config.json`, then falls back to `~/.dream`). The deployed `DREAM_HOME`, not the checked-out repository, holds the buffer, graph and topics the running stack reads and writes.
+
 ## Instructions for Claude
 
 1. Verify pre-conditions:

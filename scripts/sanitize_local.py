@@ -89,6 +89,27 @@ def _merge_counts(a: dict[str, int], b: dict[str, int]) -> dict[str, int]:
     return out
 
 
+def sanitize_regex_only(text: str) -> SanitiseResult:
+    """Deterministic regex-only redaction. No LLM, no network, fast.
+
+    Used on the Stop hook critical path so session exit never blocks on the
+    ~30 s local model. The nightly cycle upgrades the content with the full LLM
+    pass before it reaches topics or the graph.
+    """
+    start = time.perf_counter()
+    input_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    final, counts = _regex_pass(text)
+    runtime_ms = int((time.perf_counter() - start) * 1000)
+    return SanitiseResult(
+        text=final,
+        replacements=counts,
+        model="regex-only",
+        runtime_ms=runtime_ms,
+        input_sha=input_sha,
+        output_sha=hashlib.sha256(final.encode("utf-8")).hexdigest(),
+    )
+
+
 def sanitize(text: str) -> SanitiseResult:
     start = time.perf_counter()
     input_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
