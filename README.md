@@ -1,5 +1,49 @@
 # Dream
 
+**Local-first, sleep-cycle memory for AI agents.** Dream gives an assistant a memory that runs entirely on your machine. It captures what each session learned, and every night a local "dream cycle" replays the day, merges what matters, forgets the noise, and rebuilds a short index for the next session. No cloud, no raw transcripts leaving the box.
+
+> Research project, not a product. It explores one specific combination, fully local plus offline batch consolidation plus active forgetting, that mainstream agent-memory tools do not put together.
+
+### The loop
+
+```
+capture:      session ends  ──>  buffer (today.jsonl)
+                                       |
+                                       v   nightly 02:05
+consolidate:  multi-agent debate (local LLM)  ──>  temporal graph + topic tree + short index
+                                       |
+                                       v
+recall:       session starts  <──  reasoning retrieval
+```
+
+### Try it in one command
+
+```bash
+pip install -r requirements.txt
+python examples/quickstart.py                      # full stack (bge-m3 + gemma4:12b class)
+DREAM_PROFILE=lite python examples/quickstart.py   # ~6 GB class, one small model
+```
+
+The quickstart runs end to end in a throwaway directory and needs no LLM server (retrieval falls back from reasoning to embedding without Ollama). See [`examples/`](examples/).
+
+### How it differs from mem0 / Letta / Zep
+
+These are excellent tools. Dream simply sits in a different corner of the design space: they ingest memories online and mostly keep everything, while Dream consolidates offline like sleep and deliberately forgets.
+
+| | Dream | mem0 | Letta | Zep |
+|---|---|---|---|---|
+| Runs fully local | local only, by design (Ollama) | OSS self-host or hosted | OSS or hosted | hosted (Graphiti OSS) |
+| When memory is written | nightly batch (dream cycle) | online | online, self-edited | online (episodes) |
+| Forgetting | active vitality decay + cold archive | keeps salient facts | context paging | non-lossy, never discards |
+| Temporal graph | yes (simple) | optional | no | yes (bi-temporal) |
+| Maturity | research project | ~48k stars, ECAI 2025 paper | ex-MemGPT runtime | LongMemEval SOTA, arXiv |
+
+This is not a benchmark claim: [Zep](https://github.com/getzep/graphiti) leads temporal-reasoning benchmarks and [mem0](https://github.com/mem0ai/mem0) leads adoption. Dream is a research exploration of the local plus sleep-cycle plus forgetting angle, closest in spirit to [Letta](https://github.com/letta-ai/letta)'s biological framing. If you need a production memory service today, use one of them.
+
+---
+
+## Détail (français)
+
 Plugin Cowork qui donne à Claude une mémoire persistante avec un cycle de sommeil. Tout tourne sur ta machine, aucun transcript brut ne sort.
 
 ## Le plugin en une phrase
