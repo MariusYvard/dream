@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Marketplace du plugin Dream : mémoire cognitive persistante pour Claude avec cycle de sommeil local.",
-    "version": "0.7.1"
+    "version": "0.8.0"
   },
   "plugins": [
     {
       "name": "dream",
       "source": "./",
       "description": "Cycle de reve cognitif pour Claude. Palais Graphique Temporel 2.0, sanitisation locale, debat multi-agents, jardin contrefactuel, ledger Ed25519 et metriques Prometheus. Architecture hybride <16 Go RAM.",
-      "version": "0.7.1",
+      "version": "0.8.0",
       "license": "MIT",
       "keywords": [
         "memory",

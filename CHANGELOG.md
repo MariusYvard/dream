@@ -5,6 +5,17 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.8.0] — 2026-06-22
+
+Adoption pass: lower the install barrier, say what this is, and prove retrieval works.
+
+### Added
+- **Lite profile for low-footprint installs** (`scripts/model_profile.py`) — `DREAM_PROFILE=full|lite` selects the model and embedder stack from one switch, with every `DREAM_*_MODEL` / `DREAM_EMBED_MODEL` / `DREAM_EMBED_DIM` env override preserved. `lite` runs a single small model (`gemma4:e4b`) and the `bge-small-en` embedder (384-dim), roughly a 6 GB class instead of 16 GB. Wired through consolidation, counterfactual, retrieval, classification, sanitisation, the embedder and the LanceDB vector dimension, plus `setup_windows.py` so a lite server is `set DREAM_PROFILE=lite & python setup_windows.py`. Full-mode behaviour is unchanged. (The module is named `model_profile`, not `profile`, to avoid shadowing the Python stdlib `profile` that `transformers` imports during load.)
+- **English positioning header in the README** — a one-line pitch, the capture → consolidate → recall loop diagram, a one-command quickstart (full and lite), and an honest comparison with mem0, Letta and Zep that credits each and frames Dream's niche (local-only, sleep-cycle consolidation, active forgetting). The detailed French guide follows it.
+- **Reproducible retrieval eval** (`eval/recall_eval.py`, `eval/dataset.jsonl`) — stores a synthetic fact set with near-neighbour distractors and reports recall@k over the real write + embedding + vector-search path, no LLM server required. Baseline on the bundled 20-pair set (full profile, bge-m3): recall@1 90%, recall@3 95%, recall@5 100%. Honest scope: a sanity and regression signal, not a leaderboard claim.
+
+---
+
 ## [0.7.1] — 2026-06-22
 
 ### Added

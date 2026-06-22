@@ -1,0 +1,20 @@
+{"fact": "Project Atlas uses PostgreSQL 16 as its primary database.", "query": "which database does Atlas use?"}
+{"fact": "The Atlas API is rate limited to 100 requests per minute per key.", "query": "what is the Atlas API rate limit?"}
+{"fact": "Atlas deployments run on Kubernetes in the eu-west-1 region.", "query": "where is Atlas deployed?"}
+{"fact": "The Atlas team ships a release every second Thursday.", "query": "how often does Atlas release?"}
+{"fact": "Atlas authentication uses short-lived JWT access tokens valid for 15 minutes.", "query": "how long are Atlas access tokens valid?"}
+{"fact": "The Atlas frontend is built with React and Vite.", "query": "what framework is the Atlas frontend built with?"}
+{"fact": "Atlas stores uploaded files in an S3 bucket named atlas-prod-assets.", "query": "where does Atlas store uploaded files?"}
+{"fact": "The Atlas on-call rotation is one week per engineer.", "query": "how long is the Atlas on-call rotation?"}
+{"fact": "Atlas uses Stripe for payment processing.", "query": "what payment provider does Atlas use?"}
+{"fact": "The Atlas staging environment refreshes its data from production every night.", "query": "how often does Atlas staging refresh its data?"}
+{"fact": "Atlas logs are retained for 30 days in the central logging system.", "query": "how long are Atlas logs kept?"}
+{"fact": "The Atlas mobile app supports iOS 16 and above.", "query": "which iOS version does the Atlas app require?"}
+{"fact": "Atlas background jobs are processed by a Celery worker pool.", "query": "what processes Atlas background jobs?"}
+{"fact": "The Atlas design system is documented in Storybook.", "query": "where is the Atlas design system documented?"}
+{"fact": "Atlas manages feature flags through LaunchDarkly.", "query": "how does Atlas handle feature flags?"}
+{"fact": "The Atlas data warehouse is BigQuery.", "query": "what is the Atlas data warehouse?"}
+{"fact": "Atlas requires at least two approvers on a code review before merge.", "query": "how many approvers does an Atlas merge need?"}
+{"fact": "The Atlas SLA guarantees 99.9 percent uptime.", "query": "what uptime does the Atlas SLA promise?"}
+{"fact": "Atlas secrets are stored in HashiCorp Vault.", "query": "where are Atlas secrets kept?"}
+{"fact": "The Atlas CI pipeline runs on GitHub Actions.", "query": "what CI system does Atlas use?"}
