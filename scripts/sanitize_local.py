@@ -17,7 +17,8 @@ from typing import Iterable
 import httpx
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-SANITISE_MODEL = "gemma4:e4b"
+import model_profile
+SANITISE_MODEL = model_profile.sanitise_model()
 
 # Order matters: most-specific vendor prefixes first.
 PATTERNS: list[tuple[str, re.Pattern[str], str]] = [

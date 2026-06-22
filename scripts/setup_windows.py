@@ -170,16 +170,22 @@ def deploy_scripts(dream_home: pathlib.Path, dry_run: bool) -> pathlib.Path:
 # ---------------------------------------------------------------------------
 
 def _mcp_env(dream_home: pathlib.Path, scripts_dir: pathlib.Path) -> dict:
+    # Models come from the profile (DREAM_PROFILE=full|lite) so a lite install is
+    # one switch: `set DREAM_PROFILE=lite & python setup_windows.py`. Any explicit
+    # DREAM_*_MODEL env still overrides the profile.
+    import model_profile
+
     env = os.environ
     return {
         "DREAM_HOME": str(dream_home),
         "PYTHONPATH": str(scripts_dir),
+        "DREAM_PROFILE": model_profile.name(),
         "DREAM_REDIS_HOST": env.get("DREAM_REDIS_HOST", "127.0.0.1"),
         "DREAM_REDIS_PORT": env.get("DREAM_REDIS_PORT", "6379"),
-        # gemma4:26b was retired (17 GB pull, does not fit in 16 GB RAM);
-        # gemma4:12b is the supported consolidation model since 2026-06-05.
-        "DREAM_CONSOLIDATION_MODEL": env.get("DREAM_CONSOLIDATION_MODEL", "gemma4:12b"),
-        "DREAM_COUNTERFACTUAL_MODEL": env.get("DREAM_COUNTERFACTUAL_MODEL", "gemma4:12b"),
+        "DREAM_CONSOLIDATION_MODEL": model_profile.consolidation_model(),
+        "DREAM_COUNTERFACTUAL_MODEL": model_profile.counterfactual_model(),
+        "DREAM_EMBED_MODEL": model_profile.embed_model(),
+        "DREAM_EMBED_DIM": str(model_profile.embed_dim()),
     }
 
 

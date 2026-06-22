@@ -20,7 +20,8 @@ import httpx
 import topic_tree
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-MODEL = os.environ.get("DREAM_RETRIEVAL_MODEL", os.environ.get("DREAM_CONSOLIDATION_MODEL", "gemma4:12b"))
+import model_profile
+MODEL = model_profile.retrieval_model()
 
 SYSTEM = (
     "You select the memory nodes relevant to the user's goal by reasoning over a "

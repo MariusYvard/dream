@@ -43,7 +43,8 @@ RELATION_BONUS = {
 def embedder() -> SentenceTransformer:
     global _EMBEDDER
     if _EMBEDDER is None:
-        _EMBEDDER = SentenceTransformer("BAAI/bge-m3")
+        import model_profile
+        _EMBEDDER = SentenceTransformer(model_profile.embed_model())
     return _EMBEDDER
 
 

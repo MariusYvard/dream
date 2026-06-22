@@ -13,7 +13,8 @@ from pathlib import Path
 import lancedb
 import pyarrow as pa
 
-EMBED_DIM = 1024  # bge-m3 default
+import model_profile
+EMBED_DIM = model_profile.embed_dim()  # profile-driven (bge-m3 1024, bge-small 384)
 
 DREAM_HOME = Path(os.environ.get("DREAM_HOME", Path.home() / ".dream"))
 VECTORS_DIR = DREAM_HOME / "vectors.lance"

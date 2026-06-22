@@ -18,7 +18,8 @@ from pathlib import Path
 import httpx
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-CLASSIFIER_MODEL = os.environ.get("DREAM_CLASSIFIER_MODEL", "gemma4:e4b")
+import model_profile
+CLASSIFIER_MODEL = model_profile.classifier_model()
 DREAM_HOME = Path(os.environ.get("DREAM_HOME", Path.home() / ".dream"))
 _CACHE_PATH = DREAM_HOME / "logs" / "load_bearing_cache.json"
 _MIN_CHARS = 24
