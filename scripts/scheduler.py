@@ -484,12 +484,15 @@ def _run_cycle_inner() -> dict[str, Any]:
             # consolidation, not just store_event. Best-effort: a node write
             # must not abort the cycle.
             try:
+                _projs = {(ev.get("meta") or {}).get("project") for ev in cluster["events"]}
+                _proj = _projs.pop() if len(_projs) == 1 else None
                 node_store.persist_node(
                     content=result.summary,
                     node_type=cluster["type"],
                     vitality=0.9,
                     confidence=result.score_final,
                     source_session="nightly_consolidation",
+                    project=_proj,
                     ledger_op="consolidate_node",
                 )
             except Exception as exc:

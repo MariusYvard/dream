@@ -168,6 +168,62 @@ def _build_embedding(goal_text: str, token_budget: int, vitality_min: float,
     }
 
 
+def _goal_aligned_nodes(goal_text: str, k: int = 12, vitality_min: float = 0.5) -> list[dict[str, Any]]:
+    """Top base nodes whose vector aligns with the goal, enriched with their
+    project tag from SQLite. Best-effort: any failure returns [].
+
+    This is the node-aware half of the bundle. Without it load_context only
+    surfaced topics and type='decision' rows, so plain fact/process/person
+    memories (and everything tagged by project) stayed invisible to recall.
+    """
+    try:
+        import lancedb
+
+        vec = embedder().encode(goal_text, normalize_embeddings=True)
+        db = lancedb.connect(str(DREAM_HOME / "vectors.lance"))
+        table = db.open_table("nodes")
+        df = table.search(vec).limit(k * 3).to_pandas()
+        df = df[(df["vitality"] >= vitality_min) & (df["scenario"] == "base")].head(k)
+        ids = [str(x) for x in df["id"].tolist()]
+        if not ids:
+            return []
+        placeholders = ",".join("?" * len(ids))
+        with sqlite3.connect(DB_PATH) as conn:
+            rows = conn.execute(
+                f"SELECT id, content, COALESCE(project, ''), type FROM nodes "
+                f"WHERE id IN ({placeholders}) AND status = 'active'",
+                ids,
+            ).fetchall()
+        meta = {r[0]: (r[1], r[2], r[3]) for r in rows}
+        out: list[dict[str, Any]] = []
+        for nid in ids:
+            if nid not in meta:
+                continue
+            content, project, ntype = meta[nid]
+            snippet = content[:240]
+            out.append({
+                "id": nid,
+                "project": project or None,
+                "type": ntype,
+                "summary": snippet,
+                "tokens": _approx_tokens(snippet),
+            })
+        return out
+    except Exception:
+        return []
+
+
+def _attach_memories(bundle: dict[str, Any], goal_text: str, token_budget: int, vitality_min: float) -> None:
+    """Add goal-aligned nodes (grouped by project) to the bundle within budget."""
+    used = int(bundle.get("total_tokens", 0))
+    remaining = max(0, token_budget - used)
+    nodes = _goal_aligned_nodes(goal_text, k=12, vitality_min=vitality_min)
+    kept = _trim_to_budget(nodes, remaining)
+    bundle["memories"] = kept
+    bundle["projects"] = sorted({m["project"] for m in kept if m.get("project")})
+    bundle["total_tokens"] = used + sum(m["tokens"] for m in kept)
+
+
 def build_bundle(goal_text: str, token_budget: int = 2000, vitality_min: float = 0.5, topics_exclude: list[str] | None = None) -> dict[str, Any]:
     if token_budget < 256:
         raise ValueError("token_budget too small")
@@ -180,6 +236,8 @@ def build_bundle(goal_text: str, token_budget: int = 2000, vitality_min: float =
     bundle = _build_reasoning(goal_text, token_budget, vitality_min)
     if bundle is None:
         bundle = _build_embedding(goal_text, token_budget, vitality_min, topics_exclude)
+
+    _attach_memories(bundle, goal_text, token_budget, vitality_min)
 
     cache_layer.set(cache_key, bundle, ttl=300)
     return bundle

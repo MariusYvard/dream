@@ -160,8 +160,8 @@ def store_event(payload: dict[str, Any]) -> dict[str, Any]:
     with _conn() as conn:
         conn.execute(
             "INSERT INTO nodes (id, type, content, embedding_ref, validity_from, validity_to, confidence, "
-            "vitality, source_session, scenario, access_policy, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "vitality, source_session, project, scenario, access_policy, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 nid,
                 record["type"],
@@ -172,6 +172,7 @@ def store_event(payload: dict[str, Any]) -> dict[str, Any]:
                 record["validity"]["confidence"],
                 0.9,
                 (record.get("meta") or {}).get("source_session"),
+                payload.get("project"),
                 scenario,
                 payload.get("access_policy", "read_write"),
                 "active",
@@ -216,7 +217,21 @@ def search_semantic(query: str, k: int = 25, vitality_min: float = 0.3, rerank: 
     start = time.perf_counter()
     hits = hybrid_search(query=query, k=k, vitality_min=vitality_min, rerank=rerank)
     prometheus_metrics.record_search_latency((time.perf_counter() - start) * 1000.0)
-    return {"hits": [h.__dict__ for h in hits]}
+    out = [h.__dict__ for h in hits]
+    try:
+        ids = [h["node_id"] for h in out]
+        if ids:
+            with _conn() as conn:
+                rows = conn.execute(
+                    f"SELECT id, project FROM nodes WHERE id IN ({','.join(['?']*len(ids))})",
+                    ids,
+                ).fetchall()
+            proj = {r["id"]: r["project"] for r in rows}
+            for h in out:
+                h["project"] = proj.get(h["node_id"])
+    except Exception:
+        pass
+    return {"hits": out}
 
 
 @mcp.tool()

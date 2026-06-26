@@ -5,6 +5,19 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.9.0] — 2026-06-26
+
+Cross-project recall: memories now carry the project they came from, and `load_context` returns nodes, not just topics.
+
+### Added
+- **`project` tag on every node** — a nullable `project` column on `nodes` plus an idempotent `db_init` migration (a `PRAGMA`-guarded `ALTER TABLE` and `idx_nodes_project`) so a pre-existing `pgt.sqlite` gains the column without a rebuild. `store_event` reads `payload.project`, `node_store.persist_node` takes `project=` (and now `access_policy=`), the daily buffer record carries it end to end, and the nightly cycle attributes a consolidated node to its source project when the cluster is unanimous. `search_semantic` hits now include `project`.
+- **Node-aware `load_context`** — the bundle gained a `memories` list (top base nodes whose vector aligns with the active goal, each labelled with its `project`) and a `projects` summary, trimmed to the token budget. Until now recall only surfaced topic files and `type='decision'` rows, so plain fact, process and person memories (and anything tagged by project) stayed invisible. This is what lets a session pull relevant context from across projects instead of a single mounted folder.
+
+### Notes
+- Buffer-to-node promotion during consolidation already existed (`node_store.persist_node`); it now propagates `project`. The session-capture hook still does not fire under Cowork, so the reliable write path remains an explicit `store_event`.
+
+---
+
 ## [0.8.0] — 2026-06-22
 
 Adoption pass: lower the install barrier, say what this is, and prove retrieval works.

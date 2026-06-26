@@ -56,6 +56,8 @@ def persist_node(
     relation_hints: list[dict[str, Any]] | None = None,
     ledger_op: str = "store_event",
     node_id: str | None = None,
+    project: str | None = None,
+    access_policy: str = "read_write",
 ) -> dict[str, Any]:
     """Create a node end-to-end. Returns {id, vitality, ledger}.
 
@@ -94,11 +96,11 @@ def persist_node(
     with _conn() as conn:
         conn.execute(
             "INSERT INTO nodes (id, type, content, embedding_ref, validity_from, validity_to, confidence, "
-            "vitality, source_session, scenario, access_policy, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "vitality, source_session, project, scenario, access_policy, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 nid, node_type, content, f"lancedb:nodes:{nid}", vfrom, vto, confidence,
-                vitality, source_session, scenario, "read_write", "active", now, now,
+                vitality, source_session, project, scenario, access_policy, "active", now, now,
             ),
         )
         for hint in hints:

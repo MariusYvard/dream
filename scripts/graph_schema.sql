@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     access_count INTEGER NOT NULL DEFAULT 0,
     last_accessed TEXT,
     source_session TEXT,
+    project TEXT,
     consensus_score REAL,
     scenario TEXT NOT NULL DEFAULT 'base' CHECK (scenario IN ('base','counterfactual')),
     access_policy TEXT NOT NULL DEFAULT 'read_write' CHECK (access_policy IN ('read_write','read_only')),

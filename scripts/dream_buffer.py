@@ -48,6 +48,7 @@ def append_event(payload: dict[str, Any], *, full_llm: bool = True) -> dict[str,
         },
         "meta": {
             **(payload.get("meta") or {}),
+            "project": payload.get("project"),
             "input_sha": sanitised.input_sha,
             "output_sha": sanitised.output_sha,
             "replacements": sanitised.replacements,
