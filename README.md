@@ -1,4 +1,15 @@
-# Dream
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.svg">
+    <img src="docs/banner.svg" alt="Dream, Mémoire locale à cycle de sommeil pour les agents Claude." width="100%">
+  </picture>
+</p>
+
+<p align="center">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-215876">
+  <img alt="skills" src="https://img.shields.io/badge/skills-10-BF9B6F">
+  <img alt="mcp tools" src="https://img.shields.io/badge/mcp_tools-10-D97F30">
+</p>
 
 **Local-first, sleep-cycle memory for AI agents.** Dream gives an assistant a memory that runs entirely on your machine. It captures what each session learned, and every night a local "dream cycle" replays the day, merges what matters, forgets the noise, and rebuilds a short index for the next session. No cloud, no raw transcripts leaving the box.
 
@@ -131,7 +142,7 @@ Si le score consensus dépasse 0.7, la note est acceptée. Entre 0.5 et 0.7, ell
 
 ## Le jardin contrefactuel
 
-Quand un nœud est tagué comme une erreur ou que son score de consensus est très bas, Dream peut générer 2 ou 3 branches "et si on avait fait autrement". Ces branches sont stockées en lecture seule, avec une date d'expiration. Au bout de la fenêtre, Dream compare ce qui s'est réellement passé avec ce que la branche prédisait. Si la branche avait raison, elle est promue en processus stable. Sinon, elle décay ou elle est élaguée.
+Quand un nœud est tagué comme une erreur ou que son score de consensus est très bas, Dream peut générer 2 ou 3 branches "et si on avait fait autrement". Ces branches sont stockées en lecture seule, avec une date d'expiration. Au bout de la fenêtre, Dream compare ce qui s'est réellement passé avec ce que la branche prédisait. Si la branche avait raison, elle est promue en processus stable. Sinon, elle decay ou elle est élaguée.
 
 ## Le ledger crypto
 
@@ -242,6 +253,9 @@ Le scheduler (`scripts/scheduler.py`) lance le cycle nocturne à 02:05 local. Su
 
 Le serveur expose Prometheus sur `127.0.0.1:9464`. Métriques clés :
 
+<details>
+<summary><b>Observabilite : metriques Prometheus (11 metriques)</b></summary>
+
 | Métrique | Type | Utilité |
 |---|---|---|
 | `dream_cycle_completed_total` | counter | Nombre de cycles nocturnes réussis |
@@ -255,6 +269,7 @@ Le serveur expose Prometheus sur `127.0.0.1:9464`. Métriques clés :
 | `dream_circuit_mode` | gauge | Mode actif (0=NORMAL, 1=CONSERVATEUR, 2=SÉCURISÉ) |
 | `dream_ledger_merkle_ok` | gauge | 1 si l'intégrité Merkle est vérifiée, 0 sinon |
 | `dream_ollama_up` | gauge | 1 si le daemon Ollama local répond, 0 sinon |
+</details>
 
 ## Une journée type
 
@@ -269,6 +284,9 @@ Le serveur expose Prometheus sur `127.0.0.1:9464`. Métriques clés :
 
 Pièges rencontrés en production sur Windows 11, avec leur lecture correcte :
 
+<details>
+<summary><b>Depannage Windows (terrain)</b></summary>
+
 | Symptôme | Lecture correcte |
 |---|---|
 | `MCP error -32001` sur `store_event` ou `load_context` | Avant v0.5.0, l'écriture aboutissait souvent côté serveur quelques minutes après le timeout client. Réutiliser le même `id` (uuid4) en retry est idempotent. Vérification : `SELECT COUNT(*) FROM nodes`. Le préchargement de l'embedder (v0.5.0) fait disparaître le cas, désactivable via `DREAM_PRELOAD_EMBEDDER=0`. |
@@ -279,6 +297,7 @@ Pièges rencontrés en production sur Windows 11, avec leur lecture correcte :
 | Erreur 412 d'Ollama sur `gemma4:12b` | Version d'Ollama trop ancienne. Requiert >= 0.30.3. |
 | RAM saturée pendant le cycle | `gemma4:12b` chargé laisse environ 0.3 Go libres sur une machine 16 Go. Fermer les applications lourdes avant 02:05 ou définir `DREAM_PRELOAD_EMBEDDER=0`. |
 | Sortie Python invisible en arrière-plan | Les subprocess PowerShell avalent stdout sous redirection. Écrire les résultats dans des fichiers, jamais sur stdout. |
+</details>
 
 ## Licence
 
