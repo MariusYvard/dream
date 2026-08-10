@@ -5,6 +5,39 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.10.0] — 2026-08-10
+
+Autonomy pass: the cycle can reach a subscription model instead of only local ones, it repairs what it can diagnose, it catches up on nights the machine was off, and it feeds itself from transcripts instead of a hook that never fires. Then the honest part: doing that broke the host application, and half this release is the fix.
+
+### Added
+- **One LLM entry point, provider per role** (`scripts/llm.py`) — the Ollama URL and httpx client were duplicated across five files with a hardcoded constant each. `llm.ask(role, system, prompt)` replaces them and binds each role to a provider: the consolidation and counterfactual debates go to a Claude subscription through the `claude -p` CLI (no API key, no per-token billing), retrieval and classification stay on Ollama, and sanitisation is pinned local by code, not by config, because its input is text that has not been redacted yet. Every route is overridable per role; the pin is not.
+- **Transcript scanning** (`scripts/session_scan.py`) — the Stop hook was the only automatic feed and it does not fire under Cowork, so the buffer sat empty for weeks and the cycle had nothing to consolidate. Session transcripts are on disk regardless, so the cycle now reads those, resuming from a per-file byte offset. Harness injections (`<system-reminder>`, `<task-notification>`, …) are dropped: they sit in the user turn but nobody said them.
+- **`doctor --fix`** — `doctor.py` diagnosed seven things and repaired none. It now recreates `DREAM_HOME`, applies the SQLite schema, reinstalls missing dependencies, rewrites `nightly.cmd` against the interpreter actually running (the recurring Windows breakage was a wrapper left pointing into a deleted plugin cache), and clears a stale breaker. `scheduler.main` calls it first: an unattended 02:05 run has nobody to read a diagnostic.
+- **Catch-up across missed nights** — `dream_buffer.pending_days()` lists unconsolidated days (14 max) and the cycle works through them oldest first. A day is marked only after the debate and reopens by itself if anything is appended to it. The Windows task carries `StartWhenAvailable` and `WakeToRun`; `schtasks /Create` cannot set either, which is why a night with the machine off used to be lost outright.
+- **Debate budget** — clusters are ranked by size and the top `DREAM_MAX_CLUSTERS` (25) are debated. The first scan of a months-old backlog produced 778 clusters: seven and a half hours. A memory that keeps everything is a log.
+- `tests/test_autonomy.py` — 30 tests over provider routing, the local-only pin, catch-up bookkeeping, the transcript scan, the debate budget, and the regressions below.
+
+### Fixed
+- **Claude Desktop and the VS Code extension died on every restart (exit code 4294967295).** The SessionStart hook runs on every Claude Desktop, Claude Code and VS Code start. It calls `load_context`, which reached the retrieval role, which — as of the change above — launched a full CLI process. Claude Code cancels a hook at 10 s but does not kill what the hook spawned, so each session leaked a ~300 MB orphan; twenty of them held 2.9 GB on a 16 GB machine that idles near 1.3 GB free, and the host was killed for memory. Four locks, one test each: spawning the CLI is opt-in through `DREAM_ALLOW_CLI=1` and only `scheduler.main` opts in, so nothing running inside a Claude session can start another one even with an explicit provider override; retrieval is local unconditionally because it is the hook's hot path; the hook sets both guards itself before any import; and a timed-out call now runs `taskkill /F /T` on the whole tree, since the child is `cmd.exe` and the CLI is its grandchild.
+- **The session-start path cost 12.4 s of a 10 s budget, 7.3 s of it discovering that Redis is not installed.** `cache_layer` pinged `127.0.0.1:6379` at import time, and an unused port on this host drops the connection rather than refusing it, so redis-py waited out its timeout and retried — on every session start, for a cache the machine has never had. Redis is now opt-in via `DREAM_REDIS_HOST`. With `load_context`'s embedder and numpy imports made lazy and the doctor self-check throttled to once a day, the hook runs in 0.91 s.
+- **The hook crashed with `UnicodeEncodeError` after doing all of its work** — Windows hands it a cp1252 stdout and the bundle is memory content, so one arrow was enough. This is why `hook_session_start.log` had been empty for months. stdout and stderr are reconfigured to UTF-8 before anything else.
+- **`load_context` loaded a 2.3 GB sentence-transformer at session start** whenever the reasoning path failed. `DREAM_LIGHT_CONTEXT` selects a plain path (CLAUDE.md plus the most recently consolidated topics, file reads only) and the hook sets it.
+- **The breaker could not leave SECURISE on its own.** A node nobody reads sits at exactly 0.30 — the decay term alone — and the trigger fired below 0.40, so consolidation refused to run, so nothing was ever read, so vitality stayed at 0.30. Diagnosed in 0.5.0 and only half fixed (the empty-graph case). `vitality_avg` is no longer a trigger: cold memory is not unsafe memory. Ledger integrity and RAM remain, and vitality is still probed, exported and reported.
+- **The cycle stalled on the sanitisation pass**, which ran a serial ~1 s local call over the raw buffer including the ~90% of events dropped one line later. Filter first, sanitise second; the guarantee is unchanged.
+- **A cold local model was retried once per event.** A 9.6 GB model cannot load inside a 20 s call, so 1255 events meant 1255 timeouts and no verdicts. The classifier and the sanitiser now ask once and degrade for the rest of the run.
+- **The cycle lost its work when it was killed.** It marked days consolidated only at the very end, after the vitality and counterfactual bookkeeping — the part that loads the embedder and had already been killed mid-flight by memory pressure. The checkpoint moved to just after the debates.
+
+### Changed
+- Memory floors instead of documentation. `mcp_server._preload_ml` skips the embedder preload below `DREAM_PRELOAD_MIN_FREE_MB` (3500) rather than relying on someone setting `DREAM_PRELOAD_EMBEDDER=0`, and the cycle postpones itself below `DREAM_MIN_FREE_MB` (2500): with `StartWhenAvailable`, a missed night now fires in the middle of a working day. A knob nobody turns is a knob that does not exist.
+- `httpx` request logging is silenced in the scheduler; hundreds of INFO lines per cycle buried the handful that said what the cycle did, in the log nobody is awake to read.
+- Debate input capped at `DREAM_MAX_CLUSTER_CHARS` (12000). The largest cluster held 116 events, ~460 kB, and the CLI exited 1 on it.
+
+### Notes
+- Consolidation runs on the subscription, sanitisation stays on the machine. That split is deliberate and enforced in code: `sanitise` cannot be routed off-host by any environment variable.
+- Measured on the reference machine: 7.8 s per provider call, ~35 s for a four-role debate.
+
+---
+
 ## [0.9.0] — 2026-06-26
 
 Cross-project recall: memories now carry the project they came from, and `load_context` returns nodes, not just topics.
