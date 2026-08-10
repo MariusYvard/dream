@@ -11,10 +11,32 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 import cache_layer
-from mcp_search_activation import embedder, graph
+
+# Deliberately NOT `from mcp_search_activation import embedder, graph`, and
+# NOT `import numpy` at module level. The SessionStart hook imports this module
+# on every Claude Desktop, Claude Code and VS Code start, under a 10 s deadline:
+# a top-level import that drags in the sentence-transformers stack costs ~80 s
+# and hundreds of megabytes before a single line of the hook runs. Light mode
+# never reaches these, so it must never pay for them either.
+
+
+def embedder():
+    from mcp_search_activation import embedder as _embedder
+
+    return _embedder()
+
+
+def graph():
+    from mcp_search_activation import graph as _graph
+
+    return _graph()
+
+
+def _np():
+    import numpy as np
+
+    return np
 
 DREAM_HOME = Path(os.environ.get("DREAM_HOME", Path.home() / ".dream"))
 DB_PATH = DREAM_HOME / "pgt.sqlite"
@@ -72,7 +94,7 @@ def _topic_embeddings(topics: list[dict[str, Any]]) -> np.ndarray:
             _EMB_CACHE_PATH.write_text(json.dumps(cache), encoding="utf-8")
         except Exception:
             pass
-    return np.asarray([cache[s] for s in shas], dtype=float)
+    return _np().asarray([cache[s] for s in shas], dtype=float)
 
 
 def _rank_topics(topics: list[dict[str, Any]], goal_vec: np.ndarray) -> list[dict[str, Any]]:
@@ -146,6 +168,42 @@ def _build_reasoning(goal_text: str, token_budget: int, vitality_min: float) -> 
         }
     except Exception:
         return None
+
+
+def _light_mode() -> bool:
+    return os.environ.get("DREAM_LIGHT_CONTEXT", "").strip().lower() in ("1", "true", "yes")
+
+
+def _build_plain(goal_text: str, token_budget: int,
+                 topics_exclude: list[str] | None) -> dict[str, Any]:
+    """Cheapest possible bundle: CLAUDE.md plus the largest topics that fit.
+
+    No embedder, no LLM, no subprocess, just file reads. Ranking by relevance
+    needs a model and a model is exactly what this path cannot afford, so it
+    falls back to recency: the topic files most recently rewritten by the
+    nightly cycle are the ones consolidation last found worth keeping.
+    """
+    topics = _load_topics(topics_exclude)
+    for t in topics:
+        try:
+            t["score"] = (TOPICS_DIR / f"{t['name']}.md").stat().st_mtime
+        except OSError:
+            t["score"] = 0.0
+    topics.sort(key=lambda t: t["score"], reverse=True)
+
+    claude_md = CLAUDE_MD.read_text(encoding="utf-8") if CLAUDE_MD.exists() else ""
+    kept = _trim_to_budget(topics, max(0, token_budget - _approx_tokens(claude_md)))
+    return {
+        "claude_md": claude_md,
+        "topics": kept,
+        "recent_decisions": [],
+        "pending_hitl": [],
+        "memories": [],
+        "projects": [],
+        "total_tokens": _approx_tokens(claude_md) + sum(t["tokens"] for t in kept),
+        "retrieval_mode": "plain",
+        "retrieval_rationale": "light mode: no model loaded on the session-start path",
+    }
 
 
 def _build_embedding(goal_text: str, token_budget: int, vitality_min: float,
@@ -232,6 +290,15 @@ def build_bundle(goal_text: str, token_budget: int = 2000, vitality_min: float =
     cached = cache_layer.get(cache_key)
     if cached is not None:
         return cached
+
+    if _light_mode():
+        # Session-start path: no model, no vectors, no subprocess. Both other
+        # paths load a 2.3 GB sentence-transformer, which on a machine sitting
+        # at ~1.3 GB free is enough to take Claude Desktop down with it. A hook
+        # that runs before every session has to cost almost nothing.
+        bundle = _build_plain(goal_text, token_budget, topics_exclude)
+        cache_layer.set(cache_key, bundle, ttl=300)
+        return bundle
 
     bundle = _build_reasoning(goal_text, token_budget, vitality_min)
     if bundle is None:

@@ -26,6 +26,29 @@ if __name__ == "__main__":
     except Exception:
         pass
 
+# ── Budget, before any dream import ────────────────────────────────────────────
+# This hook runs on every Claude Desktop, Claude Code and VS Code session start,
+# under a 10 s cancellation deadline, on a machine that may have a gigabyte of
+# RAM to spare. It has exactly two ways to take the whole application down with
+# it, and both are shut off here rather than trusted to configuration:
+#   - DREAM_LIGHT_CONTEXT: load_context stays on the plain path, so it never
+#     loads the 2.3 GB sentence-transformer.
+#   - DREAM_ALLOW_CLI=0: nothing may spawn `claude -p`. Claude Code cancels a
+#     late hook but does not kill what it spawned, so each session start used to
+#     leak a ~300 MB orphan until memory ran out.
+os.environ["DREAM_LIGHT_CONTEXT"] = "1"
+os.environ["DREAM_ALLOW_CLI"] = "0"
+
+# Windows hands this process a cp1252 stdout. The bundle is memory content, so
+# it carries arrows, accents and dashes; one of them and the hook dies with
+# UnicodeEncodeError after doing all its work. That is why the hook log has
+# been empty.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # ── Logging setup — before any dream import so even import errors are captured ──
 
 DREAM_HOME = Path(os.environ.get("DREAM_HOME", Path.home() / ".dream"))
@@ -65,7 +88,21 @@ def _beat(status: str, **extra) -> None:
 
 def _self_check() -> None:
     """Run the cheap doctor checks (no ML import) and surface any drift, the
-    exact failure mode that left a dead registration path unnoticed for days."""
+    exact failure mode that left a dead registration path unnoticed for days.
+
+    Once a day is enough. It probes fourteen packages and reads the host config
+    from disk, which is a second or more of a ten-second budget spent
+    re-answering a question whose answer changes on install, not on session.
+    """
+    stamp = DREAM_HOME / "logs" / ".selfcheck_stamp"
+    try:
+        if stamp.exists() and (dt.datetime.now().timestamp() - stamp.stat().st_mtime) < 86400:
+            return
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(dt.datetime.now(dt.timezone.utc).isoformat(), encoding="utf-8")
+    except Exception:
+        pass
+
     try:
         from doctor import run_quick
 

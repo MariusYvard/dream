@@ -13,15 +13,34 @@ from typing import Any
 
 TTL_SECONDS = 3600
 
-try:
-    import redis  # type: ignore
+# Redis is opt-in: set DREAM_REDIS_HOST to use it.
+#
+# This probe used to run on import, and importing this module is the first thing
+# the SessionStart hook does. With no Redis listening, 127.0.0.1:6379 does not
+# refuse the connection, it drops it: redis-py then waits out socket_connect_
+# timeout and retries. Measured cost of discovering that nothing is there:
+# 7.3 s of a 10 s hook budget, on every Claude Desktop, Claude Code and VS Code
+# start, for a cache the machine has never had. An in-memory dict is the honest
+# default on a single-machine install.
+_REDIS = None
+_BACKEND = "memory"
 
-    _REDIS = redis.Redis(host=os.environ.get("DREAM_REDIS_HOST", "127.0.0.1"), port=int(os.environ.get("DREAM_REDIS_PORT", "6379")), db=0, socket_connect_timeout=0.5)
-    _REDIS.ping()
-    _BACKEND = "redis"
-except Exception:
-    _REDIS = None
-    _BACKEND = "memory"
+if os.environ.get("DREAM_REDIS_HOST"):
+    try:
+        import redis  # type: ignore
+
+        _REDIS = redis.Redis(
+            host=os.environ["DREAM_REDIS_HOST"],
+            port=int(os.environ.get("DREAM_REDIS_PORT", "6379")),
+            db=0,
+            socket_connect_timeout=0.5,
+            retry_on_timeout=False,
+        )
+        _REDIS.ping()
+        _BACKEND = "redis"
+    except Exception:
+        _REDIS = None
+        _BACKEND = "memory"
 
 _MEMORY: dict[str, tuple[float, Any]] = {}
 _LOCK = threading.Lock()

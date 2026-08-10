@@ -16,8 +16,13 @@ from typing import Iterable
 
 import httpx
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+import llm
 import model_profile
+
+# Sanitisation is the one role pinned to the local machine: its input is raw,
+# not-yet-redacted text. It keeps its own httpx call because it returns prose,
+# not JSON, so llm.ask (which parses a JSON object) does not fit.
+OLLAMA_URL = llm.OLLAMA_URL
 SANITISE_MODEL = model_profile.sanitise_model()
 
 # Order matters: most-specific vendor prefixes first.
@@ -111,16 +116,28 @@ def sanitize_regex_only(text: str) -> SanitiseResult:
     )
 
 
+# Same reason as load_bearing._llm_down: a cold local model cannot load inside
+# one call, so retrying it per event costs the timeout every time and never
+# succeeds. One failure settles it for the run; the regex pass is the strict
+# path anyway, the LLM pass is the second opinion on top of it.
+_llm_down = False
+
+
 def sanitize(text: str) -> SanitiseResult:
+    global _llm_down
     start = time.perf_counter()
     input_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     stage1, counts1 = _regex_pass(text)
-    try:
-        stage2 = _llm_pass(stage1)
-    except Exception:
-        # Local model offline: stay strict, regex-only path.
+    if _llm_down:
         stage2 = stage1
+    else:
+        try:
+            stage2 = _llm_pass(stage1)
+        except Exception:
+            # Local model offline: stay strict, regex-only path.
+            _llm_down = True
+            stage2 = stage1
     final, counts2 = _regex_pass(stage2)
 
     runtime_ms = int((time.perf_counter() - start) * 1000)

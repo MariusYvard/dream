@@ -25,7 +25,9 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 import circuit_breaker
+import dream_buffer
 import ledger_sign
+import llm
 import prometheus_metrics
 from consensus_router import debate
 from dream_buffer import iter_buffer
@@ -36,6 +38,7 @@ from vitality_engine import VitalityInputs, compute as vitality_compute, tier_fo
 import load_bearing
 import node_store
 import observability
+import session_scan
 from sanitize_local import sanitize as _sanitize_full
 
 DREAM_HOME = Path(os.environ.get("DREAM_HOME", Path.home() / ".dream"))
@@ -46,11 +49,40 @@ REJECTED_DIR = DREAM_HOME / "rejected"
 CLAUDE_MD = DREAM_HOME / "CLAUDE.md"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# httpx logs one INFO line per request: hundreds of them per cycle, drowning the
+# handful of lines that say what the cycle actually did. This is the log nobody
+# is awake to read at 02:05, so it has to stay legible after the fact.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("dream.scheduler")
+
+# Evidence fed to one debate, in characters.
+_MAX_CLUSTER_CHARS = int(os.environ.get("DREAM_MAX_CLUSTER_CHARS", "12000"))
 
 
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def _postpone_if_machine_is_busy() -> bool:
+    """Give the machine back to whoever is using it.
+
+    The nightly task now carries StartWhenAvailable, so a night the PC was off
+    means the cycle fires the moment it comes back, which is the middle of a
+    working day. The cycle then wants the embedder (2.3 GB) and a CLI process
+    per debate, alongside Claude Desktop and an IDE. Nothing here is urgent:
+    the days stay pending and the next run picks them up.
+    """
+    floor_mb = float(os.environ.get("DREAM_MIN_FREE_MB", "2500"))
+    try:
+        import psutil
+
+        free_mb = psutil.virtual_memory().available / (1024 * 1024)
+    except Exception:
+        return False  # cannot measure, do not block on a guess
+    if free_mb < floor_mb:
+        log.warning("only %.0f MB free (floor %.0f), postponing the cycle", free_mb, floor_mb)
+        return True
+    return False
 
 
 def _refuse_if_unsafe() -> bool:
@@ -441,33 +473,72 @@ def _run_cycle_inner() -> dict[str, Any]:
     log.info("cycle %s starting", cycle_id)
     if _refuse_if_unsafe():
         return {"status": "skipped"}
+    if _postpone_if_machine_is_busy():
+        return {"status": "postponed_low_memory", "cycle_id": cycle_id, "started_at": started}
 
     metrics: dict[str, Any] = {"cycle_id": cycle_id, "started_at": started}
 
-    # Consolidation, debate and the counterfactual garden all need the local
-    # Ollama daemon. Probe once up front: refuse the cycle cleanly and loudly
-    # rather than letting every cluster raise and finishing "ok" with nothing
-    # consolidated.
-    if not ollama_up():
-        log.error("ollama unreachable at cycle start, skipping consolidation")
-        prometheus_metrics.CYCLE_FAILED.labels(phase="ollama").inc()
-        prometheus_metrics.OLLAMA_UP.set(0)
-        return {"status": "skipped_ollama_down", **metrics}
-    prometheus_metrics.OLLAMA_UP.set(1)
+    # The debate needs *a* provider, not Ollama specifically: since llm.py the
+    # reasoning roles default to the Claude CLI. Probe what the consolidation
+    # role can actually reach and refuse loudly only when nothing answers,
+    # instead of failing on a daemon the cycle may no longer use.
+    prometheus_metrics.OLLAMA_UP.set(1 if ollama_up() else 0)
+    reachable = [p for p in ("claude", "ollama") if llm.available(p)]
+    if not reachable:
+        log.error("no LLM provider reachable (claude CLI absent, ollama down), skipping")
+        prometheus_metrics.CYCLE_FAILED.labels(phase="provider").inc()
+        return {"status": "skipped_no_provider", **metrics}
+    metrics["providers"] = reachable
+    metrics["provider_used"] = llm.provider_for("consolidation")
 
-    raw = iter_buffer()
+    # Ingest before consolidating: the Stop hook is not a reliable feed (it does
+    # not fire under Cowork), so read the transcripts off disk first.
+    try:
+        metrics["scan"] = session_scan.scan()
+        log.info("session scan: %s", metrics["scan"])
+    except Exception as exc:
+        log.warning("session scan skipped: %s", exc)
+        metrics["scan"] = {"error": str(exc)}
+
+    # Catch-up: every day still unconsolidated, oldest first, not just today.
+    days = dream_buffer.pending_days()
+    metrics["days"] = [d.isoformat() for d in days]
+    raw = [ev for day in days for ev in iter_buffer(day)]
     metrics["raw_events"] = len(raw)
-    metrics["sanitised_upgraded"] = _upgrade_sanitisation(raw)
+
+    # Filter first, sanitise second. The LLM sanitisation pass is a serial
+    # ~1 s local call per event; running it on the raw buffer meant paying it on
+    # the ~90% of events that the load-bearing filter drops one line later. With
+    # a hook-fed buffer of twenty events nobody noticed; with a transcript scan
+    # feeding hundreds, it stalled the whole cycle. The guarantee is unchanged:
+    # nothing reaches topics or the graph without the full pass.
     lb_events = _load_bearing(raw)
     metrics["load_bearing"] = len(lb_events)
     if len(lb_events) < 3:
         log.info("buffer too sparse (%d), skipping cycle", len(lb_events))
         return {"status": "skipped_sparse", **metrics}
+    metrics["sanitised_upgraded"] = _upgrade_sanitisation(lb_events)
 
     accepted = hitl = rejected = 0
     REJECTED_DIR.mkdir(parents=True, exist_ok=True)
-    for cluster in _cluster_events(lb_events):
-        text = "\n".join(ev["content"] for ev in cluster["events"])
+
+    # A debate is four provider calls, ~35 s. Unbounded, the first scan of a
+    # months-old transcript backlog produced 778 clusters: seven hours. Rank by
+    # cluster size (a point made once is noise, a point made in six places is a
+    # pattern) and spend the budget on the top of the list. The tail is dropped
+    # on purpose: a memory that keeps everything is a log, not a memory.
+    ranked = sorted(_cluster_events(lb_events), key=lambda c: len(c["events"]), reverse=True)
+    budget = int(os.environ.get("DREAM_MAX_CLUSTERS", "25"))
+    metrics["clusters_total"] = len(ranked)
+    metrics["clusters_skipped"] = max(0, len(ranked) - budget)
+    if metrics["clusters_skipped"]:
+        log.info("%d clusters, debating the top %d by size", len(ranked), budget)
+
+    for cluster in ranked[:budget]:
+        # Cap the debate input. The largest cluster held 116 events, ~460 kB,
+        # and the CLI exited 1 on it. A consolidation summary does not get
+        # better past a few pages of evidence, it gets slower and more fragile.
+        text = "\n".join(ev["content"] for ev in cluster["events"])[:_MAX_CLUSTER_CHARS]
         neighbours_json = _graph_neighbours(cluster["type"])
         try:
             result = debate(cluster["cluster_id"], text, neighbours_json)
@@ -513,6 +584,18 @@ def _run_cycle_inner() -> dict[str, Any]:
             trail_path = REJECTED_DIR / f"{cluster['cluster_id']}_rejected.json"
             trail_path.write_text(json.dumps(result.trail, ensure_ascii=False), encoding="utf-8")
             rejected += 1
+
+    # Checkpoint here, not at the end. Everything above is the expensive,
+    # irreversible part: the debates are done, the topics are written, the
+    # ledger has its leaves. Everything below (vitality, tiering, the
+    # counterfactual garden) is bookkeeping that loads a 2.3 GB embedder and has
+    # already been killed mid-flight by memory pressure on this machine. When
+    # that happened the days were never marked, so the next cycle re-debated the
+    # same 25 clusters from scratch. Consolidated work stays consolidated.
+    for day in days:
+        dream_buffer.mark_consolidated(day)
+    log.info("checkpoint: %d accepted, %d hitl, %d rejected, %d days marked",
+             accepted, hitl, rejected, len(days))
 
     # Recompute vitality first so the tier decision below reads fresh, decayed
     # values instead of whatever was last written on access.
@@ -586,12 +669,20 @@ def main() -> None:
     parser.add_argument("--cron", default="5 2 * * *", help="Cron expression, default 02:05 daily")
     args = parser.parse_args()
 
-    try:
-        import db_init
+    # The one caller allowed to spawn `claude -p`: this runs from Task
+    # Scheduler, outside any Claude session, with a three-hour budget. See
+    # llm.cli_allowed for why everything else is forbidden.
+    os.environ.setdefault("DREAM_ALLOW_CLI", "1")
 
-        db_init.init()
+    # Self-repair before anything else: an unattended 02:05 run has nobody to
+    # read a diagnostic, so doctor fixes what it can instead of only reporting.
+    try:
+        import doctor
+
+        for line in doctor.repair():
+            log.info("repair: %s", line)
     except Exception as exc:
-        log.warning("schema self-heal skipped: %s", exc)
+        log.warning("self-repair skipped: %s", exc)
 
     prometheus_metrics.serve()
 

@@ -15,11 +15,8 @@ import os
 import unicodedata
 from pathlib import Path
 
-import httpx
+import llm
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-import model_profile
-CLASSIFIER_MODEL = model_profile.classifier_model()
 DREAM_HOME = Path(os.environ.get("DREAM_HOME", Path.home() / ".dream"))
 _CACHE_PATH = DREAM_HOME / "logs" / "load_bearing_cache.json"
 _MIN_CHARS = 24
@@ -75,22 +72,32 @@ def _save_cache(cache: dict) -> None:
         pass
 
 
+# Once the classifier has failed, it fails for the whole run. Without this the
+# cycle asked 1255 times in a row and paid the 20 s timeout each time: a cold
+# 9.6 GB model never loads inside one call, and every retry restarts the load.
+# Seven hours of nothing. Ask once, believe the answer, degrade to lexical.
+_llm_down = False
+
+
 def _ask_llm(text: str) -> bool | None:
-    payload = {
-        "model": CLASSIFIER_MODEL,
-        "system": LLM_SYSTEM,
-        "prompt": text[:2000],
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 0.0, "num_predict": 32},
-    }
+    global _llm_down
+    if _llm_down:
+        return None
     try:
-        with httpx.Client(timeout=20.0) as client:
-            resp = client.post(OLLAMA_URL, json=payload)
-            resp.raise_for_status()
-            data = json.loads(resp.json().get("response", "{}"))
+        data = llm.ask(
+            "classifier",
+            LLM_SYSTEM,
+            text[:2000],
+            timeout=20.0,
+            options={"temperature": 0.0, "num_predict": 32},
+            # ponytail: one call per event. A Claude fallback here would mean
+            # hundreds of subprocess launches per cycle; the lexical degrade in
+            # classify() is the cheaper and already-tested answer.
+            fallback=False,
+        )
         return bool(data.get("load_bearing", False))
     except Exception:
+        _llm_down = True
         return None
 
 

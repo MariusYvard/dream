@@ -512,11 +512,29 @@ def _preload_ml() -> None:
     server-side minutes later, which reads as a failed-but-landed write.
     Preloading here, off the critical path, keeps the `initialize` handshake
     fast AND lets the first tool call answer within the client timeout.
-    Disable with DREAM_PRELOAD_EMBEDDER=0 (e.g. on RAM-starved machines).
+    Disable with DREAM_PRELOAD_EMBEDDER=0, or leave it: below
+    DREAM_PRELOAD_MIN_FREE_MB of free memory the preload skips itself. bge-m3
+    wants ~2.3 GB, and this server is a child of Claude Desktop: taking that
+    memory when there is none does not slow the host down, it kills it, and the
+    user sees the app exit with code 4294967295 rather than anything nameable.
+    A knob nobody turns is a knob that does not exist.
     """
     if os.environ.get("DREAM_PRELOAD_EMBEDDER", "1").strip().lower() in {"0", "false", "no"}:
         print("[mcp_server] embedder preload disabled by env", file=sys.stderr)
         return
+    try:
+        import psutil
+
+        free_mb = psutil.virtual_memory().available / (1024 * 1024)
+        floor_mb = float(os.environ.get("DREAM_PRELOAD_MIN_FREE_MB", "3500"))
+        if free_mb < floor_mb:
+            print(
+                f"[mcp_server] embedder preload skipped: {free_mb:.0f} MB free < {floor_mb:.0f} MB floor",
+                file=sys.stderr,
+            )
+            return
+    except Exception:
+        pass  # no psutil, no guard: fall through to the old behaviour
     try:
         from mcp_search_activation import embedder
 
