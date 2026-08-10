@@ -24,13 +24,7 @@ class HealthProbe:
     vitality_avg: float
     ram_peak_mb: float
     ledger_merkle_ok: bool
-    # Number of active base nodes backing vitality_avg. An EMPTY graph reports
-    # vitality_avg = 0.0, which must not be read as "unhealthy": tripping
-    # SECURISE on an empty graph deadlocks the stack, because consolidation
-    # (the only autonomous path that raises vitality) refuses to run in
-    # SECURISE. Bootstrap exemption: the vitality trigger only applies when at
-    # least one active node exists. Defaults to 1 so existing callers keep the
-    # historical behaviour.
+    # Reported and exported as a metric, never a trigger. See evaluate().
     active_nodes: int = 1
 
 
@@ -54,14 +48,22 @@ def _save(state: CircuitState) -> None:
 
 
 def evaluate(probe: HealthProbe) -> CircuitState:
+    """Map a health probe to a mode.
+
+    vitality_avg is deliberately NOT a trigger. A cold memory is not an unsafe
+    memory, and making it one created a deadlock the stack could not leave on
+    its own: a node nobody reads sits at exactly 0.30 (the decay term alone,
+    see vitality_engine), which is under the old 0.4 threshold, so the breaker
+    tripped SECURISE, so consolidation refused to run, so nothing was ever read,
+    so vitality stayed at 0.30. Ledger integrity and RAM are the real safety
+    signals. Vitality is still probed, still exported to Prometheus, and still
+    what dream-health reports, it just no longer blocks the one process able to
+    raise it.
+    """
     state = _load()
     target = "NORMAL"
 
-    if (
-        not probe.ledger_merkle_ok
-        or (probe.active_nodes > 0 and probe.vitality_avg < 0.4)
-        or probe.ram_peak_mb > 15000
-    ):
+    if not probe.ledger_merkle_ok or probe.ram_peak_mb > 15000:
         target = "SECURISE"
     elif probe.latency_p95_ms > 500 or probe.consensus_rate_24h < 0.7:
         target = "CONSERVATEUR"

@@ -190,10 +190,100 @@ def run_quick() -> list[str]:
     return problems
 
 
+def _pip_install(dists: list[str]) -> str:
+    import subprocess
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "pip", "install", *dists],
+        capture_output=True, text=True, timeout=600,
+    )
+    return "installed " + " ".join(dists) if proc.returncode == 0 else f"pip failed: {proc.stderr[-200:]}"
+
+
+def _write_nightly_cmd() -> str:
+    """Rewrite the scheduled-task wrapper against the interpreter and the script
+    directory actually running right now. The recurring Windows breakage was a
+    nightly.cmd left pointing into a plugin cache that a later update deleted:
+    the task then failed silently every night."""
+    target = SCRIPTS_DIR / "nightly.cmd"
+    body = (
+        "@echo off\r\n"
+        f'set "DREAM_HOME={DREAM_HOME}"\r\n'
+        f'"{sys.executable}" "{SCRIPTS_DIR / "scheduler.py"}" --once >> "{DREAM_HOME / "logs" / "nightly.log"}" 2>&1\r\n'
+    )
+    if target.exists() and target.read_text(encoding="utf-8", errors="replace") == body:
+        return ""
+    target.write_text(body, encoding="utf-8")
+    return f"rewrote {target}"
+
+
+def repair() -> list[str]:
+    """Fix what the checks above can detect, and only that.
+
+    Deliberately narrow: it recreates missing state, reinstalls missing
+    dependencies, repoints the nightly wrapper and clears a stale breaker. It
+    never edits claude_desktop_config.json (that is setup_windows.py's job and
+    it needs a Claude Desktop restart anyway) and never touches memory content.
+    """
+    done: list[str] = []
+    problems = run_quick()
+    blob = " ".join(problems)
+
+    if not DREAM_HOME.exists():
+        for sub in ("", "buffer", "logs", "topics", "archive/cold", "rejected", "keys"):
+            (DREAM_HOME / sub).mkdir(parents=True, exist_ok=True)
+        done.append(f"created {DREAM_HOME} and its subdirectories")
+
+    if "Dependencies" in blob:
+        missing = [d for d, m in REQUIRED.items() if importlib.util.find_spec(m) is None]
+        if missing:
+            done.append(_pip_install(missing))
+
+    if "SQLite schema" in blob or not DB_PATH.exists():
+        try:
+            sys.path.insert(0, str(SCRIPTS_DIR))
+            import db_init
+
+            db_init.init()
+            done.append("applied the SQLite schema (db_init)")
+        except Exception as exc:  # noqa: BLE001
+            done.append(f"db_init failed: {exc}")
+
+    try:
+        note = _write_nightly_cmd()
+        if note:
+            done.append(note)
+    except Exception as exc:  # noqa: BLE001
+        done.append(f"nightly.cmd rewrite failed: {exc}")
+
+    # A stale breaker outlives its cause: the mode is persisted, so a machine
+    # that once tripped SECURISE stays there until three green probes land, and
+    # in SECURISE the cycle that would produce them refuses to run.
+    if not run_quick():
+        try:
+            sys.path.insert(0, str(SCRIPTS_DIR))
+            import circuit_breaker
+
+            if circuit_breaker._load().mode != "NORMAL":
+                circuit_breaker.force_mode("NORMAL")
+                done.append("cleared a stale circuit breaker (-> NORMAL)")
+        except Exception as exc:  # noqa: BLE001
+            done.append(f"breaker reset failed: {exc}")
+
+    return done
+
+
 def main() -> int:
+    fix = "--fix" in sys.argv
     print("=" * 60)
-    print("  Dream doctor")
+    print("  Dream doctor" + ("  (--fix)" if fix else ""))
     print("=" * 60)
+
+    if fix:
+        for line in repair() or ["nothing to repair"]:
+            print(f"  [FIX ] {line}")
+        print("-" * 60)
+        _RESULTS.clear()
     for check in (
         check_interpreter,
         check_dependencies,

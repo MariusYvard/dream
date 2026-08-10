@@ -47,14 +47,19 @@ Execute the full nightly consolidation cycle over the day buffer. The cycle has 
 
 ## Idempotence
 
-If the cycle is interrupted mid-phase, the next run must resume from the last completed phase. The state machine is persisted in `pgt.sqlite::cycle_state` after each phase commit.
+Le rattrapage se fait au jour, pas a la phase: `dream_buffer.pending_days()` liste les journees de buffer non consolidees (14 au maximum), le cycle les traite de la plus ancienne a la plus recente, et ne marque une journee consolidee qu'une fois le debat termine. Une journee se rouvre d'elle-meme des qu'un evenement y est ecrit. Une nuit machine eteinte n'est donc plus perdue, et la tache Windows porte `StartWhenAvailable` + `WakeToRun`.
 
 ## Refus
 
 Refuser de tourner si:
-- mode `SECURISE` actif,
+- mode `SECURISE` actif (integrite du ledger ou RAM, plus jamais la vitalite: voir `circuit_breaker.evaluate`),
 - ledger Merkle integrity check echoue,
+- aucun fournisseur LLM joignable (CLI `claude` absent ET Ollama eteint),
 - moins de 3 evenements load-bearing dans le buffer (cycle inutile).
+
+Ne PAS refuser parce que la vitalite moyenne est basse. C'etait le verrou: un noeud que personne ne lit vaut exactement 0.30, l'ancien seuil etait 0.40, le cycle refusait donc de tourner, donc rien n'etait jamais lu. La vitalite reste une metrique, elle n'est plus une porte.
+
+Ne PAS refuser parce qu'Ollama est eteint. Depuis `llm.py`, le debat tourne par defaut sur l'abonnement Claude via le CLI `claude -p`; Ollama ne sert plus qu'a la sanitisation (qui reste locale par obligation) et au classifieur (qui degrade en lexical).
 
 ## Sortie utilisateur (FR)
 

@@ -15,13 +15,8 @@ import json
 import os
 from typing import Any
 
-import httpx
-
+import llm
 import topic_tree
-
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-import model_profile
-MODEL = model_profile.retrieval_model()
 
 SYSTEM = (
     "You select the memory nodes relevant to the user's goal by reasoning over a "
@@ -37,19 +32,14 @@ def select(goal_text: str, tree: dict[str, Any] | None = None, *, max_chars: int
     if not outline.strip():
         return {"selected": [], "rationale": "memory is empty", "mode": "reasoning"}
 
-    payload = {
-        "model": MODEL,
-        "system": SYSTEM,
-        "prompt": f"Goal:\n{goal_text}\n\nMemory tree:\n{outline}",
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 0.0, "num_predict": 256},
-    }
     try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(OLLAMA_URL, json=payload)
-            resp.raise_for_status()
-            data = json.loads(resp.json().get("response", "{}"))
+        data = llm.ask(
+            "retrieval",
+            SYSTEM,
+            f"Goal:\n{goal_text}\n\nMemory tree:\n{outline}",
+            timeout=30.0,
+            options={"temperature": 0.0, "num_predict": 256},
+        )
     except Exception:
         return None
 

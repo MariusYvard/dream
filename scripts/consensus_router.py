@@ -1,20 +1,15 @@
 """Four-role multi-agent debate and consensus mediation.
 
-Roles share the same Ollama-served consolidation model with different system
-prompts. The mediator aggregates scores into the final consensus.
+Roles share the same consolidation model with different system prompts, served
+by whatever provider llm.py binds to the "consolidation" role. The mediator
+aggregates scores into the final consensus.
 """
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-import model_profile
-CONSOLIDATION_MODEL = model_profile.consolidation_model()
+import llm
 
 WEIGHTS = {
     "structural_coherence": 0.25,
@@ -58,18 +53,7 @@ class DebateResult:
 
 
 def _ask(system: str, prompt: str) -> dict[str, Any]:
-    payload = {
-        "model": CONSOLIDATION_MODEL,
-        "system": system,
-        "prompt": prompt,
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
-    }
-    with httpx.Client(timeout=120.0) as client:
-        resp = client.post(OLLAMA_URL, json=payload)
-        resp.raise_for_status()
-        return json.loads(resp.json()["response"])
+    return llm.ask("consolidation", system, prompt, timeout=120.0)
 
 
 def debate(cluster_id: str, cluster_text: str, neighbours_json: str) -> DebateResult:

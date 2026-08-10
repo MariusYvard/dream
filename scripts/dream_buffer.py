@@ -60,6 +60,7 @@ def append_event(payload: dict[str, Any], *, full_llm: bool = True) -> dict[str,
     with _LOCK:
         with _today_path().open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        _unmark(dt.date.today())  # new content reopens the day for consolidation
     return record
 
 
@@ -69,3 +70,55 @@ def iter_buffer(day: dt.date | None = None) -> list[dict[str, Any]]:
         return []
     with target.open(encoding="utf-8") as fh:
         return [json.loads(line) for line in fh if line.strip()]
+
+
+# --- catch-up bookkeeping -------------------------------------------------
+# The cycle used to read today's buffer and nothing else, so a night the
+# machine was asleep was lost for good. A day is listed here once it has been
+# consolidated, and drops off the list again as soon as new content lands in
+# it. Plain text file on purpose: no migration, and readable by eye.
+_CONSOLIDATED = BUFFER_DIR / ".consolidated"
+
+
+def _read_marks() -> set[str]:
+    if not _CONSOLIDATED.exists():
+        return set()
+    return {line.strip() for line in _CONSOLIDATED.read_text(encoding="utf-8").splitlines() if line.strip()}
+
+
+def _write_marks(marks: set[str]) -> None:
+    BUFFER_DIR.mkdir(parents=True, exist_ok=True)
+    _CONSOLIDATED.write_text("\n".join(sorted(marks)) + "\n", encoding="utf-8")
+
+
+def _unmark(day: dt.date) -> None:
+    marks = _read_marks()
+    if day.isoformat() in marks:
+        _write_marks(marks - {day.isoformat()})
+
+
+def mark_consolidated(day: dt.date) -> None:
+    _write_marks(_read_marks() | {day.isoformat()})
+
+
+def buffer_days() -> list[dt.date]:
+    if not BUFFER_DIR.exists():
+        return []
+    days = []
+    for path in BUFFER_DIR.glob("*.jsonl"):
+        try:
+            days.append(dt.date.fromisoformat(path.stem))
+        except ValueError:
+            continue  # not a dated buffer file
+    return sorted(days)
+
+
+def pending_days(*, max_days: int = 14) -> list[dt.date]:
+    """Days with content still waiting for a cycle, oldest first.
+
+    Capped so that coming back to a machine left off for a month does not turn
+    the first night into an unbounded run.
+    """
+    marks = _read_marks()
+    pending = [d for d in buffer_days() if d.isoformat() not in marks]
+    return pending[-max_days:]

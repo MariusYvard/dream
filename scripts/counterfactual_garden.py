@@ -12,11 +12,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-import model_profile
-GEN_MODEL = model_profile.counterfactual_model()
+import llm
 
 GENERATOR_PROMPT = (
     "You are the Counterfactual Generator. Given the seed event and the local context, "
@@ -41,18 +37,7 @@ class Branch:
 
 
 def _ask(system: str, prompt: str) -> dict[str, Any]:
-    payload = {
-        "model": GEN_MODEL,
-        "system": system,
-        "prompt": prompt,
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
-    }
-    with httpx.Client(timeout=180.0) as client:
-        resp = client.post(OLLAMA_URL, json=payload)
-        resp.raise_for_status()
-        return json.loads(resp.json()["response"])
+    return llm.ask("counterfactual", system, prompt, timeout=180.0)
 
 
 def generate_garden(seed: dict[str, Any], neighbours: list[dict[str, Any]]) -> list[Branch]:

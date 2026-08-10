@@ -60,47 +60,23 @@ class TestReasoningRetrieval:
         out = reasoning_retrieval.select("any goal", {"title": "x", "children": []})
         assert out is not None and out["selected"] == [] and out["mode"] == "reasoning"
 
-    def test_ollama_failure_returns_none(self, monkeypatch):
-        class _Boom:
-            def __init__(self, *a, **k):
-                ...
+    def test_provider_failure_returns_none(self, monkeypatch):
+        """Every provider down must degrade to None so load_context falls back
+        to the embedding path, never raise into the caller."""
+        def _boom(*a, **k):
+            raise RuntimeError("no provider reachable")
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def post(self, *a, **k):
-                raise RuntimeError("ollama down")
-
-        monkeypatch.setattr(reasoning_retrieval.httpx, "Client", _Boom)
+        monkeypatch.setattr(reasoning_retrieval.llm, "ask", _boom)
         tree = {"title": "x", "children": [{"node_id": "t", "title": "t", "summary": "s",
                 "children": [{"node_id": "t-0", "title": "a", "summary": "aaaa"}]}]}
         assert reasoning_retrieval.select("goal", tree) is None
 
     def test_parses_selection(self, monkeypatch):
-        class _Resp:
-            def raise_for_status(self):
-                ...
-
-            def json(self):
-                return {"response": '{"selected": ["decision-0"], "rationale": "matches goal"}'}
-
-        class _Client:
-            def __init__(self, *a, **k):
-                ...
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def post(self, *a, **k):
-                return _Resp()
-
-        monkeypatch.setattr(reasoning_retrieval.httpx, "Client", _Client)
+        monkeypatch.setattr(
+            reasoning_retrieval.llm,
+            "ask",
+            lambda *a, **k: {"selected": ["decision-0"], "rationale": "matches goal"},
+        )
         tree = {"title": "x", "children": [{"node_id": "decision", "title": "decision", "summary": "s",
                 "children": [{"node_id": "decision-0", "title": "a", "summary": "aaaa"}]}]}
         out = reasoning_retrieval.select("goal", tree)
