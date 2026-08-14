@@ -160,6 +160,9 @@ class TestNoOrphanedProcesses:
             def wait(self, timeout=None):
                 return 0
 
+            def kill(self):
+                killed["kill"] = True
+
         monkeypatch.setattr(llm, "claude_bin", lambda: r"C:\fake\claude.cmd")
         monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: _Hanging())
         monkeypatch.setattr(
@@ -174,7 +177,13 @@ class TestNoOrphanedProcesses:
         else:
             raise AssertionError("a timeout must surface as LLMError")
 
-        assert killed.get("argv") == ["taskkill", "/F", "/T", "/PID", "4242"]
+        # On Windows the child is cmd.exe and the CLI is its grandchild, so only
+        # taskkill /T reaches the leak. Elsewhere killing the process is enough.
+        # The invariant under test is that a timeout leaves nothing running.
+        if os.name == "nt":
+            assert killed.get("argv") == ["taskkill", "/F", "/T", "/PID", "4242"]
+        else:
+            assert killed.get("kill") is True
 
 
 class TestCatchUp:
@@ -263,7 +272,10 @@ class TestDebateBudget:
     def test_biggest_clusters_win_the_budget(self, monkeypatch):
         """The ranking is the whole point of the cap: a point made in six
         places must be debated before a one-off line."""
-        import scheduler
+        # scheduler pulls in the retrieval module and therefore lancedb. The
+        # light CI job deliberately skips the ML stack, so skip there instead
+        # of failing on a dependency this test does not exercise.
+        scheduler = pytest.importorskip("scheduler")
 
         events = [{"type": "fact", "content": f"regle numero {i} sur la convention retenue"} for i in range(40)]
         clusters = scheduler._cluster_events(events)

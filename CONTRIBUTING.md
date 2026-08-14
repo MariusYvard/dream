@@ -20,7 +20,7 @@ La suite tourne sans la stack ML ni Ollama. Le test smoke vérifie que les 10 ou
 pytest -q tests/
 ```
 
-Le job CI léger installe seulement `mcp`, `cryptography`, `prometheus-client`, `httpx`, `numpy` et `pytest`. Un changement qui casse cette suite ne sera pas fusionné.
+Le job CI léger installe seulement `mcp`, `cryptography`, `prometheus-client`, `httpx`, `numpy`, `apscheduler` et `pytest`. Un changement qui casse cette suite ne sera pas fusionné.
 
 ## Conventions de code
 

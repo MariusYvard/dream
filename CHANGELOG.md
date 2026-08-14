@@ -15,6 +15,9 @@ Packaging only. No runtime code changed. The repository was both the marketplace
 - `tests/` and `eval/` resolve `scripts/` through `dream/scripts` instead of the repository root.
 - `README.md` and `CONTRIBUTING.md` — command paths, and a "Mettre à jour" section: updating needs no uninstall.
 
+### Fixed
+- **CI had been red since 0.10.0 for reasons unrelated to any of the above, and both failures were in `tests/test_autonomy.py`.** `test_timeout_kills_the_whole_tree` asserted the Windows `taskkill /F /T` argv unconditionally, so it could only pass on a Windows runner; it now asserts the platform's own kill and keeps the invariant (a timeout leaves nothing running). `test_biggest_clusters_win_the_budget` imports `scheduler`, which reaches `mcp_search_activation` and therefore lancedb, a dependency the light job deliberately omits; it is now an `importorskip`, so it skips light and still runs in the full job. `apscheduler` joins the light dependency list, since `scheduler` needs it either way.
+
 ### Notes
 - The MCP server command, the `SessionStart` and `Stop` hooks all address their targets through `${CLAUDE_PLUGIN_ROOT}`, which resolves to the plugin directory. They were correct before the move and are correct after it, with no edit.
 - The systemd unit, the launchd plist and the platform setup scripts point at `DREAM_HOME` (`%h/.dream/scripts/scheduler.py`), the deployed runtime copy, never the source tree. Unaffected.
