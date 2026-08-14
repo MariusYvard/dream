@@ -5,6 +5,20 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.10.1] — 2026-08-14
+
+Packaging only. No runtime code changed. The repository was both the marketplace and the plugin, with `"source": "./"` in `.claude-plugin/marketplace.json`. That form pins an already-installed user to the version they installed: the plugin manager never sees a new one. Every marketplace that updates correctly declares its plugin in a subdirectory.
+
+### Changed
+- **The plugin now lives in `dream/`.** `skills/`, `hooks/`, `scripts/`, `config/`, `examples/`, `launchd/`, `systemd/` and `.claude-plugin/plugin.json` moved there. The repository root keeps what belongs to the repository: `.github/`, `docs/`, `tests/`, `eval/`, `pytest.ini`, the requirements files and `.claude-plugin/marketplace.json` alone.
+- `.claude-plugin/marketplace.json` — `"source"` is `"./dream"`, and the `version` field is gone from both the plugin entry and `metadata`. The version lives in `dream/.claude-plugin/plugin.json` only, so the two can no longer disagree.
+- `tests/` and `eval/` resolve `scripts/` through `dream/scripts` instead of the repository root.
+- `README.md` and `CONTRIBUTING.md` — command paths, and a "Mettre à jour" section: updating needs no uninstall.
+
+### Notes
+- The MCP server command, the `SessionStart` and `Stop` hooks all address their targets through `${CLAUDE_PLUGIN_ROOT}`, which resolves to the plugin directory. They were correct before the move and are correct after it, with no edit.
+- The systemd unit, the launchd plist and the platform setup scripts point at `DREAM_HOME` (`%h/.dream/scripts/scheduler.py`), the deployed runtime copy, never the source tree. Unaffected.
+
 ## [0.10.0] — 2026-08-10
 
 Autonomy pass: the cycle can reach a subscription model instead of only local ones, it repairs what it can diagnose, it catches up on nights the machine was off, and it feeds itself from transcripts instead of a hook that never fires. Then the honest part: doing that broke the host application, and half this release is the fix.

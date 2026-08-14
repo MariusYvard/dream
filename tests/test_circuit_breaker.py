@@ -9,7 +9,7 @@ import pytest
 _TMP = tempfile.mkdtemp(prefix="dream_cb_test_")
 os.environ["DREAM_HOME"] = _TMP
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "dream" / "scripts"))
 
 import circuit_breaker  # noqa: E402
 

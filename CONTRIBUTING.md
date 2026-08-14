@@ -42,7 +42,7 @@ Le code suit le style existant. Points non négociables :
 
 SemVer. Une release suit cette checklist :
 
-1. Bump de `version` dans `.claude-plugin/plugin.json` et `.claude-plugin/marketplace.json` (les deux occurrences).
+1. Bump de `version` dans `dream/.claude-plugin/plugin.json` (seule occurrence : `.claude-plugin/marketplace.json` ne porte plus de version).
 2. Entrée datée dans le `CHANGELOG.md`.
 3. Tag git `vX.Y.Z` poussé sur le dépôt.
 4. Patch du cache local du plugin si applicable.

@@ -24,7 +24,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent / "dream"
 sys.path.insert(0, str(ROOT / "scripts"))
 
 # (query, current truth, stale truth) — the top hit should sit closer to current.

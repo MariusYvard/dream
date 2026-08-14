@@ -16,7 +16,7 @@ import pytest
 _TMP = tempfile.mkdtemp(prefix="dream_test_")
 os.environ["DREAM_HOME"] = _TMP
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "dream" / "scripts"))
 
 import ledger_sign  # noqa: E402 — must come after env patch
 
@@ -28,7 +28,7 @@ ledger_sign.DB_PATH = Path(_TMP) / "pgt.sqlite"
 
 def _bootstrap_db():
     """Create the minimal ledger schema in the temp DB."""
-    schema = Path(__file__).parent.parent / "scripts" / "graph_schema.sql"
+    schema = Path(__file__).parent.parent / "dream" / "scripts" / "graph_schema.sql"
     with sqlite3.connect(ledger_sign.DB_PATH) as conn:
         conn.executescript(schema.read_text(encoding="utf-8"))
 
@@ -42,7 +42,7 @@ def fresh_keys_and_db(tmp_path, monkeypatch):
     monkeypatch.setattr(ledger_sign, "KEYS_DIR", keys)
     monkeypatch.setattr(ledger_sign, "DB_PATH", db)
     # Bootstrap schema
-    schema = Path(__file__).parent.parent / "scripts" / "graph_schema.sql"
+    schema = Path(__file__).parent.parent / "dream" / "scripts" / "graph_schema.sql"
     with sqlite3.connect(db) as conn:
         conn.executescript(schema.read_text(encoding="utf-8"))
     # Generate keys

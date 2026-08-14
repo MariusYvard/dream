@@ -8,12 +8,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "dream" / "scripts"))
 
 import db_init
 import dream_buffer
 
-SCHEMA = Path(__file__).parent.parent / "scripts" / "graph_schema.sql"
+SCHEMA = Path(__file__).parent.parent / "dream" / "scripts" / "graph_schema.sql"
 
 
 def _cols(db):

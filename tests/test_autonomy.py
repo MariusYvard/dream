@@ -11,7 +11,7 @@ import pytest
 _TMP = tempfile.mkdtemp(prefix="dream_auto_test_")
 os.environ["DREAM_HOME"] = _TMP
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "dream" / "scripts"))
 
 import dream_buffer  # noqa: E402
 import llm  # noqa: E402
@@ -87,7 +87,7 @@ class TestNeverSpawnClaudeInsideClaude:
     def test_the_hook_pins_both_guards_before_importing(self):
         """The hook must set the guards itself, not inherit them: it is the one
         entry point that always runs inside a Claude session."""
-        hook = (Path(__file__).parent.parent / "scripts" / "hook_session_start.py").read_text(encoding="utf-8")
+        hook = (Path(__file__).parent.parent / "dream" / "scripts" / "hook_session_start.py").read_text(encoding="utf-8")
         body = hook.split("# ── Logging setup")[0]
         assert 'os.environ["DREAM_LIGHT_CONTEXT"] = "1"' in body
         assert 'os.environ["DREAM_ALLOW_CLI"] = "0"' in body
@@ -99,7 +99,7 @@ class TestNeverSpawnClaudeInsideClaude:
         of which 7.3 s was cache_layer probing a Redis that does not exist."""
         import subprocess
 
-        scripts = Path(__file__).parent.parent / "scripts"
+        scripts = Path(__file__).parent.parent / "dream" / "scripts"
         code = (
             "import sys, json;"
             f"sys.path.insert(0, r'{scripts}');"

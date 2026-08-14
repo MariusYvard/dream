@@ -27,11 +27,11 @@ recall:       session starts  <──  reasoning retrieval
 
 ```bash
 pip install -r requirements.txt
-python examples/quickstart.py                      # full stack (bge-m3 + gemma4:12b class)
-DREAM_PROFILE=lite python examples/quickstart.py   # ~6 GB class, one small model
+python dream/examples/quickstart.py                      # full stack (bge-m3 + gemma4:12b class)
+DREAM_PROFILE=lite python dream/examples/quickstart.py   # ~6 GB class, one small model
 ```
 
-The quickstart runs end to end in a throwaway directory and needs no LLM server (retrieval falls back from reasoning to embedding without Ollama). See [`examples/`](examples/).
+The quickstart runs end to end in a throwaway directory and needs no LLM server (retrieval falls back from reasoning to embedding without Ollama). See [`dream/examples/`](dream/examples/).
 
 ### How it differs from mem0 / Letta / Zep
 
@@ -197,14 +197,25 @@ ollama pull gemma4:12b
 export DREAM_HOME="$HOME/.dream"
 
 # 4. enregistrement plateforme
-# Windows :  python scripts/setup_windows.py
-# Linux   :  python scripts/setup_linux.py
-# macOS   :  python scripts/setup_macos.py
+# Windows :  python dream/scripts/setup_windows.py
+# Linux   :  python dream/scripts/setup_linux.py
+# macOS   :  python dream/scripts/setup_macos.py
 
 # 5. bootstrap dans Claude
 # Demande dans le chat : "initialise dream"
 # Le skill dream-init prépare le stockage et signe la clé Ed25519
 ```
+
+## Mettre à jour
+
+Aucune désinstallation n'est nécessaire. Depuis Claude Code :
+
+```
+/plugin marketplace update dream
+/plugin update dream@dream
+```
+
+La première commande rafraîchit le catalogue, la seconde installe la version déclarée dans `dream/.claude-plugin/plugin.json`. Lance ensuite `/reload-plugins`, ou ouvre simplement la session suivante.
 
 ## Variables d'environnement
 
@@ -237,7 +248,7 @@ export DREAM_HOME="$HOME/.dream"
 
 Au démarrage d'une session Claude, le hook `SessionStart` charge automatiquement les meilleurs nœuds du graphe (limité à 2k tokens). À la fin, le hook `Stop` extrait les phrases load-bearing de la conversation et les pousse dans le buffer du jour. Aucune action manuelle requise.
 
-Le scheduler (`scripts/scheduler.py`) lance le cycle nocturne à 02:05 local. Sur Linux : `systemd --user`. Sur macOS : `launchd`. Sur Windows : le Planificateur de tâches.
+Le scheduler (`dream/scripts/scheduler.py`) lance le cycle nocturne à 02:05 local. Sur Linux : `systemd --user`. Sur macOS : `launchd`. Sur Windows : le Planificateur de tâches.
 
 ## Outils MCP exposés
 
@@ -279,7 +290,7 @@ Pièges rencontrés en production sur Windows 11, avec leur lecture correcte :
 | Symptôme | Lecture correcte |
 |---|---|
 | `MCP error -32001` sur `store_event` ou `load_context` | Avant v0.5.0, l'écriture aboutissait souvent côté serveur quelques minutes après le timeout client. Réutiliser le même `id` (uuid4) en retry est idempotent. Vérification : `SELECT COUNT(*) FROM nodes`. Le préchargement de l'embedder (v0.5.0) fait disparaître le cas, désactivable via `DREAM_PRELOAD_EMBEDDER=0`. |
-| `can't open file ... scheduler.py` dans `logs/nightly.log` | La tâche planifiée pointe vers un cache de plugin supprimé. Relancer `python scripts/setup_windows.py` : depuis v0.5.0 il déploie une copie stable dans `DREAM_HOME\scripts` et enregistre tout contre elle. |
+| `can't open file ... scheduler.py` dans `logs/nightly.log` | La tâche planifiée pointe vers un cache de plugin supprimé. Relancer `python dream/scripts/setup_windows.py` : depuis v0.5.0 il déploie une copie stable dans `DREAM_HOME\scripts` et enregistre tout contre elle. |
 | `CantActivateDocumentInPipeline` dans un shell spawné | PATH et PATHEXT vides dans certains shells automatisés (Desktop Commander). Préfixer chaque commande : `$env:PATHEXT=".COM;.EXE;.BAT;.CMD"; $env:PATH="$env:SystemRoot\system32;$env:SystemRoot;$env:PATH"`. |
 | Un outil filesystem voit `%USERPROFILE%\.dream` vide | Faux négatif observé (taille 0, aucun enfant listé) alors que le dossier est peuplé. Trancher avec `Get-ChildItem -Force` dans PowerShell avant tout diagnostic. |
 | Fichiers vus tronqués depuis un sandbox monté sur OneDrive | Désynchronisation OneDrive. Lire et écrire depuis la machine locale, ou passer par git. |

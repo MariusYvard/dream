@@ -6,7 +6,7 @@ runs in CI-light. No Ollama: the LLM call is monkeypatched or short-circuited.
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "dream" / "scripts"))
 
 import reasoning_retrieval
 import topic_tree

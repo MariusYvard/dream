@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "dream" / "scripts"))
 
 from vitality_engine import (
     ALPHA, BETA, DELTA, GAMMA, LAMBDA,

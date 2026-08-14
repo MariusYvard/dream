@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 
-SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+SCRIPTS_DIR = Path(__file__).parent.parent / "dream" / "scripts"
 
 
 def test_all_tools_registered():
